@@ -32,7 +32,7 @@ class KoreanPlanningWorker:
         actions = build_fill_plan(profile, fields, mappings)
         by_field = {field.key: field for field in fields}
         widget_actions = [
-            plan_widget_action(by_field[action.form_field], action.resume_path, action.value)
+            plan_widget_action(by_field[action.form_field], action.resume_path, action.value, action.part)
             for action in actions
             if action.status == "planned" and action.value is not None
         ]

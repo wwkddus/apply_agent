@@ -71,6 +71,22 @@ class ResumeParserTests(unittest.TestCase):
         self.assertNotIn("secret_resume", str(caught.exception))
 
 
+class EnglishNameParsingTests(unittest.TestCase):
+    def test_labeled_english_name_is_split_by_the_korean_surname(self):
+        profile = extract_resume_profile("이름: 홍길동\n영문 이름: Gildong Hong\n")["resume_profile"]
+        self.assertEqual(profile.personal.name.full, "홍길동")
+        self.assertEqual(
+            (profile.personal.name_en.family, profile.personal.name_en.given, profile.personal.name_en.order),
+            ("Hong", "Gildong", "given_family"),
+        )
+
+    def test_unlabeled_romanized_line_needs_a_matching_surname(self):
+        found = extract_resume_profile("홍길동\nHONG GILDONG\n이름: 홍길동\n")["resume_profile"]
+        self.assertEqual(found.personal.name_en.full, "HONG GILDONG")
+        other = extract_resume_profile("이름: 홍길동\nData Engineer\n")["resume_profile"]
+        self.assertEqual(other.personal.name_en.full, "")
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -1,0 +1,164 @@
+<!doctype html>
+<!--
+  Synthetic regression page. It reproduces the ARIA structure observed on a real
+  component-library application form (role=radiogroup button groups, listbox
+  selects, calendar popovers with a typed input, async search comboboxes,
+  data-model name attributes, two-column layout). It contains no real data.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>지원서</title>
+<style>
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  [role=listbox], [role=application] { border: 1px solid #999; padding: 4px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<form id="application">
+  <section><h2>기본정보</h2>
+    <div role="group"><label id="f-name::label">이름 *</label>
+      <input name="basicInformation.name" aria-labelledby="f-name::label"></div>
+    <div role="group"><label id="f-email::label">이메일주소 *</label>
+      <div data-scope="combobox" data-part="root"><input role="combobox" aria-autocomplete="list" id="combobox:_r_c_:input" aria-labelledby="f-email::label"></div></div>
+    <div role="group"><label>연락처 *</label>
+      <input name="basicInformation.phoneNumber.nationalNumber"></div>
+    <div role="group"><label id="f-birth::label">생년월일</label>
+      <div data-scope="date-picker" data-part="root">
+        <button type="button" name="basicInformation.birthdate" aria-haspopup="grid" aria-label="Open calendar" data-placeholder="true" data-picker-format="2026. 10. 20">날짜 선택</button>
+      </div></div>
+  </section>
+
+  <section><h2>학력사항</h2>
+    <div role="group"><label>학교명 *</label>
+      <input role="combobox" aria-autocomplete="list" placeholder="검색" name="educationalBackground.highSchool.schoolName" data-options="예시고등학교"></div>
+    <div role="group"><label>학위구분 *</label>
+      <div role="radiogroup">
+        <button type="button" role="radio" aria-checked="false" id="toggle-group:_r_1_:ASSOCIATE_DEGREE">전문학사</button>
+        <button type="button" role="radio" aria-checked="false" id="toggle-group:_r_1_:BACHELORS_DEGREE">학사</button>
+      </div></div>
+    <div role="group"><label>학교명 *</label>
+      <input role="combobox" aria-autocomplete="list" placeholder="검색" name="educationalBackground.universities.0.schoolName" data-options="예시대학교|예시대학교 대학원|예시대학교(분교)" data-delay="700"></div>
+    <div role="group"><label>재학기간 *</label>
+      <div class="grid">
+        <button type="button" name="educationalBackground.universities.0.enrollmentPeriod.startDate" aria-haspopup="grid" aria-label="Open calendar" data-placeholder="true" data-picker-format="2026. 10">입학일</button>
+        <button type="button" name="educationalBackground.universities.0.enrollmentPeriod.endDate" aria-haspopup="grid" aria-label="Open calendar" data-placeholder="true" data-picker-format="2026. 10">졸업일</button>
+      </div></div>
+    <div class="grid">
+      <div role="group"><label>입학구분 *</label>
+        <div role="radiogroup">
+          <button type="button" role="radio" aria-checked="false">입학</button>
+          <button type="button" role="radio" aria-checked="false">편입</button>
+        </div></div>
+      <div role="group"><label id="f-status::label">졸업구분 *</label>
+        <button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="f-status::label" data-placeholder-shown="" name="educationalBackground.universities.0.completionStatus" data-options="졸업|졸업예정|재학|휴학|수료|중퇴">선택</button></div>
+    </div>
+    <div class="grid">
+      <div role="group"><label>주/야간 구분 *</label>
+        <div role="radiogroup">
+          <button type="button" role="radio" aria-checked="false">주간</button>
+          <button type="button" role="radio" aria-checked="false">야간</button>
+        </div></div>
+      <div role="group"><label>평점 *</label>
+        <div class="grid">
+          <input name="educationalBackground.universities.0.gpa.score">
+          <button type="button" role="combobox" aria-haspopup="listbox" data-placeholder-shown="" name="educationalBackground.universities.0.gpa.scoreScale" data-options="4.5|4.3|4.0|100">만점기준</button>
+        </div></div>
+    </div>
+    <div role="group"><label>전공 *</label>
+      <div class="grid">
+        <button type="button" role="combobox" aria-haspopup="listbox" name="educationalBackground.universities.0.majors.0.majorClassification" data-options="주전공|복수전공|부전공">주전공</button>
+        <input role="combobox" aria-autocomplete="list" placeholder="전공" name="educationalBackground.universities.0.majors.0" data-options="컴퓨터공학|컴퓨터공학과|전자공학" data-delay="400">
+      </div></div>
+  </section>
+
+  <section><h2>경력사항</h2>
+    <div role="group"><label>부서 *</label><input name="workHistory.workExperiences.0.department"></div>
+  </section>
+
+  <section><h2>동의</h2>
+    <label><input type="checkbox" id="agree"> 개인정보 수집 및 이용 동의 (필수)</label>
+  </section>
+  <button type="submit" id="submit">제출하기</button>
+</form>
+
+<div id="portal"></div>
+<script>
+  window.submitted = 0;
+  document.getElementById("application").addEventListener("submit", (event) => { event.preventDefault(); window.submitted += 1; });
+  const portal = document.getElementById("portal");
+  const closePortal = () => { portal.innerHTML = ""; };
+  const openList = (owner, labels, onPick) => {
+    closePortal();
+    const list = document.createElement("div");
+    list.setAttribute("role", "listbox");
+    for (const text of labels) {
+      const item = document.createElement("div");
+      item.setAttribute("role", "option");
+      item.textContent = text;
+      item.addEventListener("click", () => { onPick(text); closePortal(); });
+      list.appendChild(item);
+    }
+    portal.appendChild(list);
+  };
+
+  // Listbox selects: button trigger, options rendered in a portal.
+  document.querySelectorAll("button[aria-haspopup=listbox]").forEach((button) => {
+    button.addEventListener("click", () => openList(button, button.dataset.options.split("|"), (text) => {
+      button.textContent = text;
+      button.removeAttribute("data-placeholder-shown");
+    }));
+  });
+
+  // Search comboboxes: options arrive after a delay, filtered by the typed text.
+  document.querySelectorAll("input[role=combobox][data-options]").forEach((input) => {
+    let timer = null;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      closePortal();
+      const query = input.value.trim();
+      if (!query) return;
+      timer = setTimeout(() => {
+        const matches = input.dataset.options.split("|").filter((text) => text.includes(query));
+        openList(input, matches, (text) => { input.value = text; });
+      }, Number(input.dataset.delay || 300));
+    });
+    input.addEventListener("keydown", (event) => { if (event.key === "Escape") { clearTimeout(timer); closePortal(); } });
+  });
+
+  // Toggle groups.
+  document.querySelectorAll("[role=radiogroup]").forEach((group) => {
+    group.querySelectorAll("[role=radio]").forEach((radio) => radio.addEventListener("click", () => {
+      group.querySelectorAll("[role=radio]").forEach((item) => item.setAttribute("aria-checked", "false"));
+      radio.setAttribute("aria-checked", "true");
+    }));
+  });
+
+  // Calendar popovers with a typed input.
+  document.querySelectorAll("button[aria-haspopup=grid]").forEach((button) => {
+    button.addEventListener("click", () => {
+      closePortal();
+      const content = document.createElement("div");
+      content.setAttribute("role", "application");
+      content.setAttribute("data-part", "content");
+      content.setAttribute("data-state", "open");
+      const input = document.createElement("input");
+      input.setAttribute("data-part", "input");
+      input.placeholder = button.dataset.pickerFormat;
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closePortal();
+        if (event.key !== "Enter") return;
+        const shape = button.dataset.pickerFormat.replace(/\d/g, "9");
+        if (input.value.replace(/\d/g, "9") !== shape) return;
+        button.textContent = input.value;
+        button.removeAttribute("data-placeholder");
+        closePortal();
+      });
+      content.appendChild(input);
+      portal.appendChild(content);
+    });
+  });
+</script>
+</body>
+</html>

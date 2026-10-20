@@ -79,6 +79,64 @@ class ApiTests(unittest.TestCase):
         self.assertIn("education.university.school_name", paths)
         self.assertEqual(planned.json()["skipped_field_count"], 0)
 
+    def test_local_llm_unavailable_falls_back_to_rules_with_warning(self):
+        import httpx
+
+        def refused(request):
+            raise httpx.ConnectError("refused")
+
+        settings = ApiSettings(
+            database_path=Path(self.temp.name) / "llm.sqlite3",
+            api_token=TOKEN,
+            allowed_hosts=frozenset({"testserver"}),
+            llm_mode="always",
+            ollama_transport=httpx.MockTransport(refused),
+        )
+        with TestClient(create_app(settings)) as client:
+            task_id = client.post(
+                "/api/tasks", headers=self.headers, json={"target_url": "https://jobs.example.com/apply"}
+            ).json()["task_id"]
+            sample = Path(__file__).parents[1] / "resume_kr_table_synthetic.pdf"
+            with sample.open("rb") as handle:
+                upload = client.post(
+                    f"/api/tasks/{task_id}/resume",
+                    headers=self.headers,
+                    files={"file": ("resume.pdf", handle, "application/pdf")},
+                )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        body = upload.json()
+        self.assertTrue(any("ollama serve" in warning for warning in body["warnings"]))
+        self.assertEqual(body["sources"]["education.university.school_name"], "rule")
+
+    def test_user_can_correct_a_resume_value_with_validation(self):
+        task_id = self.create_task()
+        sample = Path(__file__).parents[1] / "resume_kr_table_synthetic.pdf"
+        with sample.open("rb") as handle:
+            self.client.post(
+                f"/api/tasks/{task_id}/resume",
+                headers=self.headers,
+                files={"file": ("resume.pdf", handle, "application/pdf")},
+            )
+        edited = self.client.patch(
+            f"/api/tasks/{task_id}/resume",
+            headers=self.headers,
+            json={"path": "education.graduate_school.admission_date", "value": "2021.03"},
+        )
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["values"]["education.graduate_school.admission_date"], "2021-03")
+        invalid = self.client.patch(
+            f"/api/tasks/{task_id}/resume",
+            headers=self.headers,
+            json={"path": "person.email", "value": "not-an-email"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+        unknown = self.client.patch(
+            f"/api/tasks/{task_id}/resume",
+            headers=self.headers,
+            json={"path": "person.password", "value": "x"},
+        )
+        self.assertEqual(unknown.status_code, 422)
+
     def test_non_pdf_upload_is_rejected(self):
         task_id = self.create_task()
         response = self.client.post(

@@ -57,8 +57,17 @@ class MappingAndPlanningTests(unittest.TestCase):
         self.assertNotIn("selector", encoded)
         self.assertNotIn("url", encoded.casefold())
 
-    def test_split_name_requires_confirmation(self):
+    def test_verifiable_korean_split_is_used_without_confirmation(self):
         profile = ResumeProfile(personal=PersonalInfo(name=infer_name_parts("홍길동")))
+        fields = [
+            FormField(key="family", label="성", group_labels=["성", "이름"], required=True),
+            FormField(key="given", label="이름", group_labels=["성", "이름"], required=True),
+        ]
+        actions = build_fill_plan(profile, fields, run_map(fields))
+        self.assertEqual({item.form_field: item.value for item in actions}, {"family": "홍", "given": "길동"})
+
+    def test_uncertain_split_name_requires_confirmation(self):
+        profile = ResumeProfile(personal=PersonalInfo(name=infer_name_parts("Gildong Hong")))
         fields = [
             FormField(key="family", label="성", group_labels=["성", "이름"], required=True),
             FormField(key="given", label="이름", group_labels=["성", "이름"], required=True),
@@ -67,11 +76,11 @@ class MappingAndPlanningTests(unittest.TestCase):
         actions = build_fill_plan(profile, fields, mappings)
         self.assertEqual({item.status for item in actions}, {"name_confirmation_required"})
 
-        confirmed = confirm_name_parts(profile, family="홍", given="길동")
+        confirmed = confirm_name_parts(profile, family="Hong", given="Gildong")
         actions = build_fill_plan(confirmed, fields, mappings)
         self.assertEqual({item.status for item in actions}, {"planned"})
         values = {item.form_field: item.value for item in actions}
-        self.assertEqual(values, {"family": "홍", "given": "길동"})
+        self.assertEqual(values, {"family": "Hong", "given": "Gildong"})
 
     def test_existing_page_value_is_never_overwritten_by_default(self):
         profile = ResumeProfile(personal=PersonalInfo(name={"full": "홍길동"}))

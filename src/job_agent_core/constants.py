@@ -32,6 +32,13 @@ NAME_PATHS = {
     "person.name.middle",
 }
 
+# Romanized (English) name, kept separately from the native-script name.
+NAME_EN_PATHS = {
+    "person.name_en.full",
+    "person.name_en.family",
+    "person.name_en.given",
+}
+
 PERSONAL_PATHS = {
     "birth_date": "person.birth_date",
     "phone": "person.phone",
@@ -43,6 +50,7 @@ PERSONAL_PATHS = {
 
 RESUME_PATHS = (
     sorted(NAME_PATHS)
+    + sorted(NAME_EN_PATHS)
     + list(PERSONAL_PATHS.values())
     + ["skills"]
     + [f"education.{level}.{field}" for level in EDUCATION_LEVELS for field in EDUCATION_FIELDS]

@@ -45,6 +45,7 @@ class MappingRecord(BaseModel):
     confidence: float
     reason: str
     source: str = "rule"
+    part: str | None = None
     status: Literal[
         "auto_accepted",
         "needs_human_review",

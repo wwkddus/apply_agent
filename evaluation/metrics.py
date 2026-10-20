@@ -1,0 +1,93 @@
+"""Score recorded runs against hand-labelled ground truth. Pure functions, no I/O."""
+from __future__ import annotations
+
+import math
+from statistics import mean
+
+
+UNMAPPED = "unmapped"
+HUMAN_STATUSES = {
+    "needs_human",
+    "needs_human_review",
+    "mapping_review_required",
+    "name_confirmation_required",
+    "readonly",
+    "unsupported",
+}
+
+
+def _p95(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    return round(numerator / denominator, 4) if denominator else None
+
+
+def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dict[str, object]:
+    """labels: (site, page_index, form_field) -> expected resume path or 'unmapped'."""
+    rows = []
+    unlabeled = 0
+    pages = []
+    for run in runs:
+        present = set(run["resume"]["present_paths"])
+        for page in run["pages"]:
+            pages.append(page)
+            for field in page["fields"]:
+                expected = labels.get((run["site"], int(field["page_index"]), field["form_field"]), "")
+                if not expected:
+                    unlabeled += 1
+                    continue
+                rows.append((field, expected, present))
+
+    mapped_correct = filled = unsafe = attempted = fillable = success = 0
+    flagged_human = silent_miss = not_attempted = correct_skip = 0
+    attempts: list[int] = []
+    for field, expected, present in rows:
+        predicted = field["predicted_path"] or UNMAPPED
+        status = field["fill_status"]
+        mapped_correct += predicted == expected
+        if field["attempts"]:
+            attempted += 1
+            attempts.append(int(field["attempts"]))
+        if status == "filled_verified":
+            filled += 1
+            unsafe += predicted != expected
+        if predicted == UNMAPPED:
+            not_attempted += 1
+            correct_skip += expected == UNMAPPED
+        human = field["decision_status"] in HUMAN_STATUSES or status in HUMAN_STATUSES
+        flagged_human += human
+        if expected != UNMAPPED and expected in present and status != "kept_existing":
+            fillable += 1
+            ok = status == "filled_verified" and predicted == expected
+            success += ok
+            silent_miss += not ok and not human
+
+    inspect_ms = [float(page["inspect_ms"]) for page in pages]
+    fill_ms = [float(page["fill_ms"]) for page in pages if page.get("fill_ms") is not None]
+    return {
+        "runs": len(runs),
+        "pages": len(pages),
+        "labeled_fields": len(rows),
+        "unlabeled_fields": unlabeled,
+        "field_mapping_accuracy": _rate(mapped_correct, len(rows)),
+        "fillable_fields": fillable,
+        "autofill_success_rate": _rate(success, fillable),
+        "validation_pass_rate": _rate(filled, attempted),
+        "unsafe_fill_count": unsafe,
+        "unsafe_fill_rate": _rate(unsafe, filled),
+        "human_intervention_rate": _rate(flagged_human, len(rows)),
+        "silent_miss_count": silent_miss,
+        "skip_precision": _rate(correct_skip, not_attempted),
+        "retry_mean": round(mean(attempts), 3) if attempts else None,
+        "retry_max": max(attempts) if attempts else None,
+        "retried_fields": sum(value > 1 for value in attempts),
+        "inspect_ms_mean": round(mean(inspect_ms), 1) if inspect_ms else None,
+        "inspect_ms_p95": _p95(inspect_ms),
+        "fill_ms_mean": round(mean(fill_ms), 1) if fill_ms else None,
+        "fill_ms_p95": _p95(fill_ms),
+    }

@@ -118,6 +118,7 @@ class PersonalInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: PersonName = Field(default_factory=PersonName)
+    name_en: PersonName = Field(default_factory=PersonName)
     birth_date: str = ""
     phone: str = ""
     email: str = ""

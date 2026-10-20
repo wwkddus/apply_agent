@@ -127,6 +127,54 @@ class WidgetPlanningTests(unittest.TestCase):
             "YYYYMMDD",
         )
 
+    def test_example_date_placeholder_defines_the_format(self):
+        self.assertEqual(detect_text_date_format(placeholder="2020.03", pattern=None, maxlength=None), "YYYY.MM")
+        self.assertEqual(detect_text_date_format(placeholder="1990-01-01", pattern=None, maxlength=None), "YYYY-MM-DD")
+        self.assertIsNone(detect_text_date_format(placeholder="2020.03-01", pattern=None, maxlength=None))
+        action = plan_widget_action(
+            FormField(key="grad", widget_kind="text", placeholder="예) 2024.02"),
+            "education.university.graduation_date",
+            "2024-02",
+        )
+        self.assertEqual(action.value, "2024.02")
+
+    def test_phone_format_follows_field_constraints(self):
+        def plan(**kwargs):
+            return plan_widget_action(FormField(key="phone", widget_kind="text", **kwargs), "person.phone", "010-1234-5678")
+
+        self.assertEqual(plan(maxlength=11).value, "01012345678")
+        self.assertEqual(plan(placeholder="'-' 없이 숫자만").value, "01012345678")
+        self.assertEqual(plan(placeholder="010-0000-0000").value, "010-1234-5678")
+        self.assertEqual(plan(pattern=r"\d{11}").value, "01012345678")
+        unknown = plan()
+        self.assertEqual(unknown.value, "010-1234-5678")
+        self.assertEqual(unknown.fallback_value, "01012345678")
+
+    def test_gpa_options_match_numerically(self):
+        options = [
+            FormOption(value="", text="선택"),
+            FormOption(value="s43", text="4.3점 만점"),
+            FormOption(value="s45", text="4.50점 만점"),
+            FormOption(value="s100", text="100점 만점"),
+        ]
+        action = plan_widget_action(
+            FormField(key="scale", widget_kind="select", options=options),
+            "education.university.gpa_scale",
+            "4.5",
+        )
+        self.assertEqual(action.value, "s45")
+
+    def test_phone_segment_values(self):
+        head = plan_widget_action(
+            FormField(key="p1", widget_kind="select", options=[FormOption(value="010", text="010")]),
+            "person.phone",
+            "010-1234-5678",
+            "1/3",
+        )
+        tail = plan_widget_action(FormField(key="p3", widget_kind="text", maxlength=4), "person.phone", "010-1234-5678", "3/3")
+        self.assertEqual((head.action, head.value), ("select_option", "010"))
+        self.assertEqual((tail.action, tail.value), ("fill", "5678"))
+
 
 if __name__ == "__main__":
     unittest.main()

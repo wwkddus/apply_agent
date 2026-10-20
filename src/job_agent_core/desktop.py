@@ -10,6 +10,11 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QInputDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -44,6 +49,17 @@ STATUS_LABELS = {
     "failed_validation": "검증 실패",
     "field_not_found": "필드 변경됨",
 }
+
+# Results the user can resolve from the review dialog.
+REVIEWABLE = {"needs_human", "failed_validation", "missing_resume_value", "field_not_found"}
+
+STEPS = (
+    "① 이력서·URL 준비",
+    "② 브라우저에서 로그인·지원서 열기",
+    "③ 이 페이지 자동 입력",
+    "④ 확인 필요 항목 처리",
+    "⑤ 직접 검토 후 제출",
+)
 
 
 class DesktopApiError(RuntimeError):
@@ -88,7 +104,7 @@ class DesktopApiClient:
                     "POST",
                     f"/api/tasks/{task_id}/resume",
                     files={"file": (resume_path.name, handle, "application/pdf")},
-                    timeout=60,
+                    timeout=240,  # A local LLM may be used for free-form resumes.
                 )
         except Exception:
             try:
@@ -131,6 +147,54 @@ class DesktopApiClient:
     def next_page(self, task_id: str) -> dict[str, Any]:
         return self._request("POST", f"/api/tasks/{task_id}/browser/next", timeout=30)
 
+    def fill_field(self, task_id: str, form_field: str, label: str, value: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/tasks/{task_id}/browser/fill-field",
+            json={"form_field": form_field, "label": label, "value": value},
+            timeout=45,
+        )
+
+    def edit_resume(self, task_id: str, path: str, value: str) -> dict[str, Any]:
+        return self._request("PATCH", f"/api/tasks/{task_id}/resume", json={"path": path, "value": value})
+
+
+class ReviewDialog(QDialog):
+    """Lets the user confirm or correct one field the agent could not finish on its own."""
+
+    def __init__(self, parent: QWidget, item: dict[str, Any], resume_value: str):
+        super().__init__(parent)
+        self.setWindowTitle("항목 확인")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.addRow("항목", QLabel(item.get("label") or "라벨 없음"))
+        form.addRow("이력서 항목", QLabel(item.get("resume_path") or "연결 없음"))
+        status = QLabel(STATUS_LABELS.get(item.get("status", ""), item.get("status", "")))
+        form.addRow("상태", status)
+        reason = QLabel(item.get("reason", ""))
+        reason.setWordWrap(True)
+        form.addRow("판단 근거", reason)
+        self.value_box = QComboBox()
+        self.value_box.setEditable(True)
+        choices = [value for value in [resume_value, *item.get("candidates", [])] if value]
+        self.value_box.addItems(list(dict.fromkeys(choices)))
+        form.addRow("입력할 값", self.value_box)
+        layout.addLayout(form)
+        hint = QLabel("페이지의 후보 중에서 고르거나 직접 수정한 뒤 입력하세요. 입력 후 브라우저에서 다시 확인합니다.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox()
+        self.fill_button = buttons.addButton("이 값으로 입력", QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton("건너뛰기", QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def value(self) -> str:
+        return self.value_box.currentText().strip()
+
 
 class OperationSignals(QObject):
     succeeded = Signal(object)
@@ -169,6 +233,8 @@ class ApplyLocalWindow(QMainWindow):
         self.fill_report: dict[str, Any] | None = None
         self.started_at = QElapsedTimer()
         self.pending_domain: str | None = None
+        self.table_mode = "preview"
+        self.table_items: list[dict[str, Any]] = []
         self.setWindowTitle("Apply Local")
         self.setMinimumSize(720, 720)
         self.resize(760, 820)
@@ -196,6 +262,18 @@ class ApplyLocalWindow(QMainWindow):
         self.pin_window.toggled.connect(self._toggle_always_on_top)
         header.addWidget(self.pin_window)
         layout.addLayout(header)
+
+        steps = QHBoxLayout()
+        steps.setSpacing(6)
+        self.step_labels: list[QLabel] = []
+        for text in STEPS:
+            label = QLabel(text)
+            label.setObjectName("step")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setWordWrap(True)
+            steps.addWidget(label, 1)
+            self.step_labels.append(label)
+        layout.addLayout(steps)
 
         input_card = QFrame()
         input_card.setObjectName("card")
@@ -257,34 +335,36 @@ class ApplyLocalWindow(QMainWindow):
         self.open_button.clicked.connect(self._open_browser)
         self.refresh_button = QPushButton("상태 새로고침")
         self.refresh_button.clicked.connect(self._refresh_browser)
-        self.inspect_button = QPushButton("현재 페이지 확인")
-        self.inspect_button.setObjectName("primary")
-        self.inspect_button.clicked.connect(self._inspect)
+        self.fill_button = QPushButton("이 페이지 자동 입력")
+        self.fill_button.setObjectName("primary")
+        self.fill_button.setToolTip("현재 브라우저에 열린 지원서 페이지를 검사하고, 확실한 항목만 입력한 뒤 다시 확인합니다.")
+        self.fill_button.clicked.connect(self._fill)
         actions.addWidget(self.prepare_button)
         actions.addWidget(self.open_button)
         actions.addWidget(self.refresh_button)
-        actions.addWidget(self.inspect_button)
+        actions.addWidget(self.fill_button)
         layout.addLayout(actions)
 
         secondary_actions = QHBoxLayout()
         self.approve_button = QPushButton("도메인 허용")
         self.approve_button.clicked.connect(self._approve_domain)
-        self.fill_button = QPushButton("확인된 항목만 입력")
-        self.fill_button.setObjectName("primary")
-        self.fill_button.clicked.connect(self._fill)
         self.next_button = QPushButton("다음 페이지")
         self.next_button.clicked.connect(self._next_page)
         secondary_actions.addWidget(self.approve_button)
-        secondary_actions.addWidget(self.fill_button)
         secondary_actions.addWidget(self.next_button)
         layout.addLayout(secondary_actions)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["항목", "판단 근거", "상태"])
+        self.table_hint = QLabel("")
+        self.table_hint.setObjectName("muted")
+        layout.addWidget(self.table_hint)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["항목", "판단 근거", "상태", ""])
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(0, self.table.horizontalHeader().ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, self.table.horizontalHeader().ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, self.table.horizontalHeader().ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, self.table.horizontalHeader().ResizeMode.ResizeToContents)
+        self.table.cellDoubleClicked.connect(self._row_activated)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(self.table.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(self.table.EditTrigger.NoEditTriggers)
@@ -322,6 +402,9 @@ class ApplyLocalWindow(QMainWindow):
             QPushButton#primary { background: #111111; color: #ffffff; border-color: #111111; font-weight: 600; }
             QPushButton#primary:hover { background: #333333; }
             QTableWidget { background: #ffffff; alternate-background-color: #fafafa; border: 1px solid #d8d8d8; border-radius: 6px; gridline-color: #e8e8e8; }
+            QLabel#step { background: #f3f3f3; color: #777777; border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px 4px; font-size: 12px; }
+            QLabel#stepActive { background: #111111; color: #ffffff; border: 1px solid #111111; border-radius: 6px; padding: 6px 4px; font-size: 12px; font-weight: 700; }
+            QLabel#stepDone { background: #ffffff; color: #111111; border: 1px solid #b8b8b8; border-radius: 6px; padding: 6px 4px; font-size: 12px; }
             QHeaderView::section { background: #f3f3f3; color: #111111; padding: 8px; border: 0; border-bottom: 1px solid #d8d8d8; font-weight: 600; }
             """
         )
@@ -337,6 +420,7 @@ class ApplyLocalWindow(QMainWindow):
         box.addWidget(value)
         box.addWidget(label)
         layout.addLayout(box, 1)
+        value.setProperty("caption", label)
         return value
 
     def _toggle_always_on_top(self, checked: bool) -> None:
@@ -355,7 +439,6 @@ class ApplyLocalWindow(QMainWindow):
             self.prepare_button,
             self.open_button,
             self.refresh_button,
-            self.inspect_button,
             self.approve_button,
             self.fill_button,
             self.next_button,
@@ -421,11 +504,20 @@ class ApplyLocalWindow(QMainWindow):
         self._update_buttons()
 
     def _show_preview(self, values: dict[str, str]) -> None:
-        rows = []
-        for path, value in values.items():
-            if value:
-                rows.append((path, value, "인식 완료"))
-        self._set_rows(rows)
+        self.table_mode = "preview"
+        self.table_items = [{"path": path, "value": value} for path, value in values.items()]
+        self.table_hint.setText("이력서에서 읽은 값입니다. 값이 틀리거나 비어 있으면 행을 더블클릭해 고치세요.")
+        sources = (self.preview or {}).get("sources", {})
+
+        def state(path: str, value: str) -> str:
+            if not value:
+                return "값 없음"
+            return {"llm": "로컬 LLM · 확인 필요", "user": "사용자 수정"}.get(sources.get(path, ""), "인식 완료")
+
+        self._set_rows(
+            [(path, value or "—", state(path, value)) for path, value in values.items()],
+            actions=["수정"] * len(values),
+        )
 
     def _confirm_name(self) -> None:
         if not self.task_id:
@@ -472,7 +564,9 @@ class ApplyLocalWindow(QMainWindow):
             self.status_label.setText(f"이동 또는 폼 도메인을 확인해 주세요: {self.pending_domain}")
         else:
             title = browser.get("page_title") or browser.get("current_hostname") or "브라우저"
-            self.status_label.setText(f"{title} · 로그인이 필요하면 직접 완료한 뒤 현재 페이지를 확인하세요.")
+            self.status_label.setText(
+                f"{title} · 로그인이 필요하면 브라우저에서 직접 완료하고, 지원서 화면에서 '이 페이지 자동 입력'을 누르세요."
+            )
         self._update_buttons()
 
     def _approve_domain(self) -> None:
@@ -488,38 +582,6 @@ class ApplyLocalWindow(QMainWindow):
             self._browser_updated,
         )
 
-    def _inspect(self) -> None:
-        if self.task_id:
-            self._run(
-                "현재 페이지의 필드를 검출하고 있습니다…",
-                lambda: self.client.inspect_browser(self.task_id or ""),
-                self._inspected,
-            )
-
-    def _inspected(self, report: dict[str, Any]) -> None:
-        self.inspection = report
-        self.fill_report = None
-        self.browser = report["browser"]
-        decisions = report["decisions"]
-        actionable = sum(item["status"] == "planned" for item in decisions)
-        warnings = sum(item["status"] not in {"planned", "kept_existing"} for item in decisions)
-        self.detected_value.setText(str(report["field_count"]))
-        self.actionable_value.setText(str(actionable))
-        self.warning_value.setText(str(warnings))
-        self._update_elapsed()
-        self.status_label.setText(f"필드 {report['field_count']}개를 검출했고 {actionable}개를 입력할 수 있습니다.")
-        self._set_rows([
-            (
-                f"{item.get('label') or '라벨 없음'}  ·  {item.get('widget_kind', '')}",
-                item.get("reason", ""),
-                STATUS_LABELS.get(item.get("status", ""), item.get("status", "")),
-            )
-            for item in decisions
-        ])
-        domains = report.get("unapproved_frame_hosts") or []
-        self.pending_domain = next(iter(domains), None)
-        self._update_buttons()
-
     def _fill(self) -> None:
         if self.task_id:
             self._run(
@@ -530,23 +592,19 @@ class ApplyLocalWindow(QMainWindow):
 
     def _filled(self, report: dict[str, Any]) -> None:
         self.fill_report = report
-        self.browser = report["browser"]
+        self.inspection = None
+        self._browser_updated(report["browser"])
         needs_attention = report["needs_human_count"] + report["failed_count"]
+        self.detected_value.setText(str(report.get("field_count", len(report["results"]))))
         self.actionable_value.setText(str(report["filled_count"]))
+        self.actionable_value.property("caption").setText("입력 완료")
         self.warning_value.setText(str(needs_attention))
         self._update_elapsed()
         self.status_label.setText(
             f"입력·검증 {report['filled_count']}개, 기존 값 유지 {report['kept_existing_count']}개, "
             f"직접 확인 {needs_attention}개입니다."
         )
-        self._set_rows([
-            (
-                f"{item.get('label') or '라벨 없음'}  ·  {item.get('resume_path') or ''}",
-                item.get("reason", ""),
-                STATUS_LABELS.get(item.get("status", ""), item.get("status", "")),
-            )
-            for item in report["results"]
-        ])
+        self._show_results(report["results"])
         if report.get("submit_control_count"):
             QMessageBox.information(
                 self,
@@ -567,15 +625,114 @@ class ApplyLocalWindow(QMainWindow):
         self.inspection = None
         self.fill_report = None
         self._browser_updated(browser)
-        self.status_label.setText("다음 페이지로 이동했습니다. 현재 페이지를 다시 확인하세요.")
+        self.status_label.setText("다음 페이지로 이동했습니다. '이 페이지 자동 입력'을 다시 누르세요.")
 
-    def _set_rows(self, rows: list[tuple[str, str, str]]) -> None:
+    def _show_results(self, results: list[dict[str, Any]]) -> None:
+        # Items needing the user come first so they are visible without scrolling.
+        ordered = sorted(results, key=lambda item: item.get("status") not in REVIEWABLE)
+        self.table_mode = "results"
+        self.table_items = ordered
+        pending = sum(item.get("status") in REVIEWABLE for item in ordered)
+        self.table_hint.setText(
+            f"확인이 필요한 {pending}개 항목은 '상세'를 눌러 값을 고르거나 고친 뒤 입력하세요." if pending else "모든 항목을 처리했습니다. 브라우저에서 내용을 검토하세요."
+        )
+        self._set_rows(
+            [
+                (
+                    f"{item.get('label') or '라벨 없음'}  ·  {item.get('resume_path') or ''}",
+                    item.get("reason", ""),
+                    STATUS_LABELS.get(item.get("status", ""), item.get("status", "")),
+                )
+                for item in ordered
+            ],
+            actions=["상세" if item.get("status") in REVIEWABLE else "" for item in ordered],
+        )
+
+    def _set_rows(self, rows: list[tuple[str, str, str]], actions: list[str] | None = None) -> None:
         self.table.setRowCount(len(rows))
         for row, values in enumerate(rows):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
                 self.table.setItem(row, column, item)
+            label = (actions or [""] * len(rows))[row]
+            if label:
+                button = QPushButton(label)
+                button.clicked.connect(lambda _checked=False, index=row: self._row_activated(index, 0))
+                self.table.setCellWidget(row, 3, button)
+            else:
+                self.table.removeCellWidget(row, 3)
+                self.table.setItem(row, 3, QTableWidgetItem(""))
+
+    def _row_activated(self, row: int, _column: int) -> None:
+        if not self.task_id or not 0 <= row < len(self.table_items):
+            return
+        item = self.table_items[row]
+        if self.table_mode == "preview":
+            self._edit_resume_value(item["path"], item["value"])
+        elif item.get("status") in REVIEWABLE:
+            self._review(item)
+
+    def _edit_resume_value(self, path: str, current: str) -> None:
+        value, accepted = QInputDialog.getText(self, "이력서 값 수정", path, text=current)
+        if not accepted or value.strip() == current:
+            return
+        self._run(
+            "이력서 값을 수정하고 있습니다…",
+            lambda: self.client.edit_resume(self.task_id or "", path, value.strip()),
+            lambda preview: self._resume_edited(preview, path),
+        )
+
+    def _resume_edited(self, preview: dict[str, Any], path: str = "") -> None:
+        sources = dict((self.preview or {}).get("sources", {}))
+        if path:
+            sources[path] = "user"
+        self.preview = {**(self.preview or {}), **preview, "sources": sources}
+        self.status_label.setText("이력서 값을 수정했습니다. 이 실행 동안만 사용되며 파일은 바뀌지 않습니다.")
+        self._show_preview(preview["values"])
+        self._update_buttons()
+
+    def _review(self, item: dict[str, Any]) -> None:
+        values = (self.preview or {}).get("values", {})
+        dialog = ReviewDialog(self, item, values.get(item.get("resume_path") or "", ""))
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.value():
+            return
+        value = dialog.value()
+        self._run(
+            "선택한 값을 입력하고 브라우저에서 다시 확인하고 있습니다…",
+            lambda: self.client.fill_field(self.task_id or "", item["form_field"], item.get("label", ""), value),
+            self._field_filled,
+        )
+
+    def _field_filled(self, result: dict[str, Any]) -> None:
+        results = [result if item.get("form_field") == result.get("form_field") else item for item in self.table_items]
+        if self.fill_report is not None:
+            self.fill_report = {**self.fill_report, "results": results}
+        self._show_results(results)
+        self.warning_value.setText(str(sum(item.get("status") in REVIEWABLE for item in results)))
+        self.actionable_value.setText(str(sum(item.get("status") == "filled_verified" for item in results)))
+        self.status_label.setText(
+            "입력하고 브라우저에서 확인했습니다." if result.get("status") == "filled_verified" else result.get("reason", "")
+        )
+        self._update_buttons()
+
+    def _current_step(self) -> int:
+        if self.preview is None or self.preview.get("name_confirmation_required"):
+            return 0
+        if self.browser is None:
+            return 1
+        if self.fill_report is None:
+            return 2 if self.browser.get("can_inspect") else 1
+        if any(item.get("status") in REVIEWABLE for item in self.fill_report.get("results", [])):
+            return 3
+        return 4
+
+    def _render_steps(self) -> None:
+        current = self._current_step()
+        for index, label in enumerate(self.step_labels):
+            label.setObjectName("stepActive" if index == current else "stepDone" if index < current else "step")
+            label.style().unpolish(label)
+            label.style().polish(label)
 
     def _update_elapsed(self) -> None:
         if self.started_at.isValid():
@@ -593,15 +750,16 @@ class ApplyLocalWindow(QMainWindow):
         self.open_button.setEnabled(has_preview and not needs_name)
         self.name_frame.setVisible(needs_name)
         self.refresh_button.setVisible(has_browser)
-        self.inspect_button.setVisible(has_browser)
-        self.inspect_button.setEnabled(can_inspect)
         self.approve_button.setVisible(bool(self.pending_domain))
-        self.fill_button.setVisible(self.inspection is not None and not has_fill_report)
+        self.fill_button.setVisible(has_browser)
+        self.fill_button.setEnabled(can_inspect)
+        self.fill_button.setText("이 페이지 다시 자동 입력" if has_fill_report else "이 페이지 자동 입력")
         self.next_button.setVisible(
             bool(has_fill_report and self.fill_report and self.fill_report.get("safe_next_available"))
         )
         self.choose_resume_button.setEnabled(not has_preview)
         self.url_edit.setReadOnly(has_preview)
+        self._render_steps()
 
     def _render_initial(self) -> None:
         self.preview = None
@@ -612,9 +770,13 @@ class ApplyLocalWindow(QMainWindow):
         self.started_at.invalidate()
         self.detected_value.setText("0")
         self.actionable_value.setText("0")
+        self.actionable_value.property("caption").setText("입력 가능")
         self.warning_value.setText("0")
         self.elapsed_value.setText("-")
         self.table.setRowCount(0)
+        self.table_items = []
+        self.table_mode = "preview"
+        self.table_hint.setText("")
         self.status_label.setText("이력서와 채용 페이지 URL을 준비해 주세요.")
         self.url_edit.setReadOnly(False)
         self._update_buttons()

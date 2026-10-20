@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from playwright.async_api import Error as PlaywrightError, Locator
@@ -19,7 +19,10 @@ from .form_inspector import ControlTarget, FieldTarget, PageInspection, inspect_
 from .mapping import FormField
 from .models import ResumeProfile
 from .security import domain_matches, is_safe_next_control, is_submit_like_control
-from .widgets import WidgetAction
+from .models import clean_field
+from .planning import field_name_for_path
+from .constants import ALLOWED_RESUME_PATHS
+from .widgets import WidgetAction, format_like_example, pick_option, plan_widget_action
 from .worker import KoreanPlanningWorker, WorkerPlan
 
 
@@ -63,6 +66,9 @@ class BrowserFillResult(BaseModel):
     ]
     reason: str
     attempts: int = 0
+    widget_kind: str = ""
+    # Option texts read from the page when the agent could not pick one; shown to the user.
+    candidates: list[str] = Field(default_factory=list)
 
 
 class BrowserFillReport(BaseModel):
@@ -70,6 +76,7 @@ class BrowserFillReport(BaseModel):
 
     browser: BrowserStatus
     results: list[BrowserFillResult]
+    field_count: int = 0
     filled_count: int
     kept_existing_count: int
     needs_human_count: int
@@ -123,6 +130,24 @@ def _normalized(value: str, path: str) -> str:
 
 def _equivalent(actual: str, expected: str, path: str) -> bool:
     return bool(actual) and _normalized(actual, path) == _normalized(expected, path)
+
+
+def _plain(value: str) -> str:
+    return re.sub(r"\s+", "", value or "").casefold()
+
+
+def _same_date(actual: str, iso_value: str) -> bool:
+    """'2020. 03' matches 2020-03-01 when the widget shows only year and month."""
+    digits = re.sub(r"\D", "", actual or "")
+    expected = re.sub(r"\D", "", iso_value)
+    return digits == expected or (len(digits) == 6 and expected.startswith(digits))
+
+
+@dataclass(slots=True)
+class _Outcome:
+    error: str | None = None
+    expected: str | None = None
+    candidates: list[str] = field(default_factory=list)
 
 
 class BrowserAutomationWorker:
@@ -233,6 +258,7 @@ class BrowserAutomationWorker:
                 "form_field": action.form_field,
                 "label": field.label,
                 "resume_path": action.resume_path,
+                "widget_kind": field.widget_kind,
             }
             if action.status == "kept_existing":
                 results.append(
@@ -284,6 +310,7 @@ class BrowserAutomationWorker:
         return BrowserFillReport(
             browser=await self.sessions.status(task_id),
             results=results,
+            field_count=len(prepared.inspection.fields),
             filled_count=filled_count,
             kept_existing_count=kept_count,
             needs_human_count=manual_count,
@@ -291,6 +318,44 @@ class BrowserAutomationWorker:
             safe_next_available=len(refreshed.safe_next) == 1,
             submit_control_count=len(refreshed.submit_controls),
         )
+
+    async def fill_field(
+        self,
+        task_id: str,
+        profile: ResumeProfile,
+        form_field: str,
+        label: str,
+        value: str,
+    ) -> BrowserFillResult:
+        """Fill one field with a value the user chose in the review dialog, then read it back."""
+        prepared = await self._prepare(task_id, profile)
+        field = next((item for item in prepared.inspection.fields if item.key == form_field), None)
+        if field is None or field.label != label:
+            raise BrowserSessionError("페이지가 바뀌어 이 항목을 다시 찾지 못했습니다. '이 페이지 자동 입력'을 다시 실행해 주세요.")
+        if field.widget_kind in {"checkbox", "file", "unsupported"} or (field.readonly and field.widget_kind != "custom_date_picker"):
+            raise BrowserSessionError("이 항목은 브라우저에서 직접 처리해야 합니다.")
+        mapping = next((item for item in prepared.plan.mappings if item.form_field == form_field), None)
+        path = mapping.resume_path if mapping and mapping.resume_path != "unmapped" else "user_input"
+        try:
+            clean = clean_field(field_name_for_path(path) if path in ALLOWED_RESUME_PATHS else "skills", value)
+        except ValueError as error:
+            raise BrowserSessionError(f"입력값 형식이 올바르지 않습니다: {error}") from None
+        if not clean:
+            raise BrowserSessionError("입력할 값이 비어 있습니다.")
+        action = plan_widget_action(field, path, clean, mapping.part if mapping else None)
+        if action.status != "planned":
+            return BrowserFillResult(
+                form_field=form_field,
+                label=field.label,
+                resume_path=path,
+                widget_kind=field.widget_kind,
+                status="needs_human",
+                reason=action.reason,
+            )
+        target = prepared.inspection.targets.get(form_field)
+        if target is None:
+            raise BrowserSessionError("DOM에서 필드를 다시 찾지 못했습니다.")
+        return await self._execute(field, target, action, overwrite=True)
 
     async def advance(self, task_id: str, profile: ResumeProfile) -> BrowserStatus:
         prepared = await self._prepare(task_id, profile)
@@ -316,14 +381,17 @@ class BrowserAutomationWorker:
         field: FormField,
         target: FieldTarget,
         action: WidgetAction,
+        *,
+        overwrite: bool = False,
     ) -> BrowserFillResult:
         base = {
             "form_field": field.key,
             "label": field.label,
             "resume_path": action.resume_path,
+            "widget_kind": field.widget_kind,
         }
         try:
-            if await self._has_existing(target):
+            if not overwrite and await self._has_existing(target):
                 return BrowserFillResult(
                     **base,
                     status="kept_existing",
@@ -332,25 +400,28 @@ class BrowserAutomationWorker:
         except PlaywrightError:
             return BrowserFillResult(**base, status="field_not_found", reason="DOM에서 필드를 다시 찾지 못했습니다.")
 
-        max_attempts = 2 if action.action in {"fill", "select_option", "check_radio", "select_parts"} else 1
-        last_reason = "브라우저 재확인 결과가 입력 예정 값과 일치하지 않습니다."
-        attempts = 0
-        for attempt in range(1, max_attempts + 1):
-            attempts = attempt
+        # Retry at most once: with the alternative format when one exists, otherwise the same value.
+        candidates = [action]
+        if action.action in {"fill", "select_option", "check_radio", "select_parts", "choose_aria_radio"}:
+            retry_value = action.fallback_value if action.action == "fill" and action.fallback_value else action.value
+            candidates.append(action.model_copy(update={"value": retry_value, "fallback_value": None}))
+        for attempt, candidate in enumerate(candidates, start=1):
             try:
-                outcome = await self._execute_once(target, action)
-                if outcome:
+                outcome = await self._execute_once(target, candidate)
+                if outcome.error:
                     return BrowserFillResult(
                         **base,
                         status="needs_human",
-                        reason=outcome,
+                        reason=outcome.error,
                         attempts=attempt,
+                        candidates=outcome.candidates,
                     )
-                if await self._verified(target, action):
+                if await self._verified(target, candidate, outcome.expected):
                     return BrowserFillResult(
                         **base,
                         status="filled_verified",
-                        reason="입력 후 브라우저에서 값을 다시 확인했습니다.",
+                        reason="입력 후 브라우저에서 값을 다시 확인했습니다."
+                        + (" (대체 형식으로 재시도해 통과)" if candidate.value != action.value else ""),
                         attempts=attempt,
                     )
             except PlaywrightError:
@@ -360,12 +431,28 @@ class BrowserAutomationWorker:
                     reason="입력 중 페이지 구조가 바뀌어 안전하게 계속할 수 없습니다.",
                     attempts=attempt,
                 )
+        cleared = await self._clear(target, action)
         return BrowserFillResult(
             **base,
             status="failed_validation",
-            reason=last_reason,
-            attempts=attempts,
+            reason="브라우저 재확인 결과가 입력 예정 값과 일치하지 않아 건너뛰었습니다."
+            + (" 잘못 남은 값은 지웠습니다." if cleared else " 남은 값을 직접 확인해 주세요."),
+            attempts=len(candidates),
         )
+
+    async def _clear(self, target: FieldTarget, action: WidgetAction) -> bool:
+        """Undo a failed text/select input so an unverified value is never left behind."""
+        try:
+            locator = target.frame.locator(target.selector).first
+            if action.action in {"fill", "choose_suggestion"}:
+                await locator.fill("")
+                return not (await locator.input_value()).strip()
+            if action.action == "select_option":
+                await locator.select_option(value="")
+                return not (await locator.input_value()).strip()
+        except PlaywrightError:
+            pass
+        return False
 
     async def _has_existing(self, target: FieldTarget) -> bool:
         if target.widget_kind == "split_date_select":
@@ -376,75 +463,138 @@ class BrowserAutomationWorker:
         locator = target.frame.locator(target.selector)
         if target.widget_kind == "radio_group":
             return await locator.locator(":checked").count() > 0
+        if target.widget_kind == "aria_radio_group":
+            return await locator.locator('[role="radio"][aria-checked="true"]').count() > 0
         if await locator.count() != 1:
             raise PlaywrightError("field count changed")
-        if target.widget_kind == "custom_select":
+        if await locator.get_attribute("data-placeholder-shown") is not None or await locator.get_attribute("data-placeholder") == "true":
+            return False
+        if target.widget_kind == "custom_select" or (
+            target.widget_kind == "custom_date_picker" and await locator.evaluate("element => element.tagName") == "BUTTON"
+        ):
             text = (await locator.inner_text()).strip()
-            return bool(text and not re.fullmatch(r"선택|선택하세요|미선택|choose|select", text, re.I))
+            return bool(text and not re.fullmatch(r"선택|선택하세요|미선택|choose|select|날짜 선택", text, re.I))
         try:
             return bool((await locator.input_value()).strip())
         except PlaywrightError:
             return bool((await locator.get_attribute("data-value") or "").strip())
 
-    async def _execute_once(self, target: FieldTarget, action: WidgetAction) -> str | None:
+    async def _execute_once(self, target: FieldTarget, action: WidgetAction) -> _Outcome:
         locator = target.frame.locator(target.selector)
         if action.action == "select_parts":
             assert isinstance(action.value, dict)
             for part, value in action.value.items():
                 part_locator = target.frame.locator(target.part_selector(part))
                 if await part_locator.count() != 1 or not await part_locator.is_enabled():
-                    return "날짜 선택 항목의 상태가 바뀌어 사용자가 직접 확인해야 합니다."
+                    return _Outcome("날짜 선택 항목의 상태가 바뀌어 사용자가 직접 확인해야 합니다.")
                 await part_locator.select_option(value=value)
-            return None
+            return _Outcome()
         if await locator.count() < 1:
-            return "DOM에서 필드를 다시 찾지 못했습니다."
+            return _Outcome("DOM에서 필드를 다시 찾지 못했습니다.")
         first = locator.first
         if not await first.is_visible() or not await first.is_enabled():
-            return "보이지 않거나 비활성화된 필드는 자동 입력하지 않습니다."
+            return _Outcome("보이지 않거나 비활성화된 필드는 자동 입력하지 않습니다.")
+        assert action.value is not None
         if action.action == "fill":
             assert isinstance(action.value, str)
             await first.fill(action.value)
-            return None
+            if target.widget_kind == "custom_combobox":
+                await first.press("Escape")
+            return _Outcome(expected=action.value)
         if action.action == "select_option":
             assert isinstance(action.value, str)
             await first.select_option(value=action.value)
-            return None
+            return _Outcome(expected=action.value)
         if action.action == "check_radio":
             assert isinstance(action.value, str)
             matches = [item for item in await locator.all() if (await item.get_attribute("value")) == action.value]
             if len(matches) != 1:
-                return "일치하는 라디오 선택지를 하나로 확정할 수 없습니다."
+                return _Outcome("일치하는 라디오 선택지를 하나로 확정할 수 없습니다.")
             await matches[0].check()
-            return None
+            return _Outcome(expected=action.value)
+        if action.action == "choose_aria_radio":
+            assert isinstance(action.value, str)
+            radios = first.locator('[role="radio"]')
+            matches = [item for item in await radios.all() if _plain(await item.inner_text()) == _plain(action.value)]
+            if len(matches) != 1:
+                return _Outcome("일치하는 버튼형 선택지를 하나로 확정할 수 없습니다.")
+            await matches[0].click()
+            return _Outcome(expected=action.value)
         if action.action in {"choose_suggestion", "choose_custom_option"}:
             assert isinstance(action.value, str)
             await first.click()
             if action.action == "choose_suggestion":
                 await first.fill(action.value)
-            await asyncio.sleep(0.25)
-            options = target.frame.locator(
-                '[role="option"]:visible, [role="listbox"] button:visible, [role="listbox"] li:visible'
-            )
-            matches: list[Locator] = []
-            for option in await options.all():
-                if _normalized(await option.inner_text(), action.resume_path) == _normalized(action.value, action.resume_path):
-                    matches.append(option)
-            if len(matches) != 1:
-                return "일치하는 자동완성 또는 사용자 정의 선택 항목을 하나로 확정할 수 없습니다."
-            await matches[0].click()
-            return None
+            options = await self._wait_for_options(target)
+            texts = [(await option.inner_text()).strip() for option in options]
+            index, candidates = pick_option(texts, action.value, action.resume_path)
+            if index is None:
+                await self._dismiss(target, first, typed=action.action == "choose_suggestion")
+                if not texts:
+                    return _Outcome("선택 목록이 나타나지 않았습니다. 직접 선택해 주세요.")
+                return _Outcome(
+                    "이력서 값과 일치하는 선택지를 하나로 확정할 수 없습니다. 후보 중에서 골라 주세요.",
+                    candidates=candidates or texts[:5],
+                )
+            await options[index].click()
+            return _Outcome(expected=texts[index])
         if action.action == "adapter_set_date":
             assert isinstance(action.value, str)
             return await self._set_custom_date(target, first, action.value)
-        return "지원하지 않는 입력 동작입니다."
+        return _Outcome("지원하지 않는 입력 동작입니다.")
 
-    async def _set_custom_date(self, target: FieldTarget, locator: Locator, iso_value: str) -> str | None:
+    @staticmethod
+    async def _wait_for_options(target: FieldTarget, timeout: float = 3.0) -> list[Locator]:
+        """Wait for suggestions that may load asynchronously; stop once the list is stable."""
+        selector = '[role="option"]:visible, [role="listbox"] button:visible, [role="listbox"] li:visible'
+        previous = -1
+        options: list[Locator] = []
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.15)
+            options = await target.frame.locator(selector).all()
+            if options and len(options) == previous:
+                break
+            previous = len(options)
+        return options
+
+    @staticmethod
+    async def _dismiss(target: FieldTarget, locator: Locator, *, typed: bool) -> None:
+        try:
+            if typed:
+                await locator.fill("")
+            await locator.press("Escape")
+        except PlaywrightError:
+            pass
+
+    async def _set_custom_date(self, target: FieldTarget, locator: Locator, iso_value: str) -> _Outcome:
         year, month, day = iso_value.split("-")
         try:
             await locator.click()
         except PlaywrightError:
             pass
         frame = target.frame
+        await asyncio.sleep(0.2)
+        # Many component libraries put a typed input inside the open calendar popover.
+        popover_inputs = frame.locator(
+            '[role="dialog"]:visible input:visible, [role="application"]:visible input:visible, '
+            '[data-part="content"][data-state="open"] input:visible'
+        )
+        if await popover_inputs.count() == 1:
+            box = popover_inputs.first
+            formatted = format_like_example(await box.get_attribute("placeholder"), iso_value)
+            if formatted is None:
+                await box.press("Escape")
+                return _Outcome("달력 입력칸의 날짜 형식을 확실히 판단할 수 없습니다.")
+            await box.fill(formatted)
+            await box.press("Enter")
+            await asyncio.sleep(0.2)
+            if await popover_inputs.count():
+                try:
+                    await popover_inputs.first.press("Escape")
+                except PlaywrightError:
+                    pass
+            return _Outcome(expected=iso_value)
         dialogs = frame.locator('[role="dialog"]:visible')
         if await dialogs.count() == 0:
             sibling = locator.locator("xpath=following-sibling::button[1]")
@@ -452,23 +602,23 @@ class BrowserAutomationWorker:
                 await sibling.click()
                 await asyncio.sleep(0.1)
         if await dialogs.count() != 1:
-            return "안전하게 인식할 수 있는 달력 대화상자를 하나로 확정하지 못했습니다."
+            return _Outcome("안전하게 인식할 수 있는 달력 대화상자를 하나로 확정하지 못했습니다.")
         dialog = dialogs.first
         year_select = dialog.locator('select[aria-label*="연도"], select[aria-label*="년"]')
         month_select = dialog.locator('select[aria-label*="월"]')
         if await year_select.count() != 1 or await month_select.count() != 1:
-            return "달력의 연도와 월 선택 항목을 확실히 찾지 못했습니다."
+            return _Outcome("달력의 연도와 월 선택 항목을 확실히 찾지 못했습니다.")
         if not await self._select_number(year_select, int(year)) or not await self._select_number(month_select, int(month)):
-            return "달력에서 이력서 날짜와 일치하는 연도 또는 월을 찾지 못했습니다."
+            return _Outcome("달력에서 이력서 날짜와 일치하는 연도 또는 월을 찾지 못했습니다.")
         days = dialog.locator('[role="gridcell"]:visible, button[data-day]:visible')
         matches: list[Locator] = []
         for candidate in await days.all():
             if re.sub(r"\D", "", await candidate.inner_text()) == str(int(day)):
                 matches.append(candidate)
         if len(matches) != 1:
-            return "달력에서 날짜를 하나로 확정할 수 없습니다."
+            return _Outcome("달력에서 날짜를 하나로 확정할 수 없습니다.")
         await matches[0].click()
-        return None
+        return _Outcome(expected=iso_value)
 
     @staticmethod
     async def _select_number(locator: Locator, number: int) -> bool:
@@ -484,13 +634,13 @@ class BrowserAutomationWorker:
         await locator.select_option(value=(await matches[0].get_attribute("value")) or "")
         return True
 
-    async def _verified(self, target: FieldTarget, action: WidgetAction) -> bool:
+    async def _verified(self, target: FieldTarget, action: WidgetAction, expected: str | None) -> bool:
         assert action.value is not None
         if action.action == "select_parts":
             assert isinstance(action.value, dict)
-            for part, expected in action.value.items():
+            for part, wanted in action.value.items():
                 actual = await target.frame.locator(target.part_selector(part)).input_value()
-                if str(actual) != str(expected):
+                if str(actual) != str(wanted):
                     return False
             return True
         locator = target.frame.locator(target.selector)
@@ -501,15 +651,25 @@ class BrowserAutomationWorker:
                     return True
             return False
         first = locator.first
-        if action.action == "choose_custom_option":
+        if action.action == "choose_aria_radio":
+            for radio in await first.locator('[role="radio"][aria-checked="true"]').all():
+                if _plain(await radio.inner_text()) == _plain(str(expected)):
+                    return True
+            return False
+        if action.action == "choose_custom_option" or await first.evaluate("element => element.tagName") == "BUTTON":
             actual = await first.inner_text()
         else:
             try:
                 actual = await first.input_value()
             except PlaywrightError:
                 actual = (await first.get_attribute("data-value")) or await first.inner_text()
-        expected = str(action.value)
-        if not _equivalent(actual, expected, action.resume_path):
+        if action.action == "adapter_set_date":
+            if not _same_date(actual, str(action.value)):
+                return False
+        elif action.action in {"choose_custom_option", "choose_suggestion"}:
+            if not actual.strip() or _plain(actual) != _plain(str(expected)):
+                return False
+        elif not _equivalent(actual, str(expected), action.resume_path):
             return False
         try:
             return bool(await first.evaluate("element => typeof element.checkValidity !== 'function' || element.checkValidity()"))

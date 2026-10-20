@@ -18,11 +18,13 @@ from .browser_session import (
     BrowserSessionNotFound,
     BrowserStatus,
 )
-from .browser_worker import BrowserAutomationWorker, BrowserFillReport, BrowserInspectionReport
+from .browser_worker import BrowserAutomationWorker, BrowserFillReport, BrowserFillResult, BrowserInspectionReport
 from .constants import MAX_RESUME_BYTES
 from .korean_scope import enforce_korean_mvp_profile, korean_mvp_values
 from .mapping import FormField
-from .names import confirm_name_parts, normalized_name
+from .names import confirm_name_parts, name_components_usable, normalized_name
+from .planning import set_resume_value
+from .resume_llm import LlmUnavailable, merge_llm_values, ollama_settings, proposed_values, request_ollama, should_use_llm
 from .resume_parser import ResumeParseError, extract_resume_profile, inspect_resume_bytes
 from .security import URLPolicyError, validate_target_url
 from .tasks import (
@@ -43,6 +45,9 @@ class ApiSettings(BaseModel):
     api_token: str = Field(min_length=24)
     browser_profile_root: Path | None = None
     browser_headless: bool = False
+    # Local-LLM resume extraction: "off", "auto" (only for sparse rule results) or "always".
+    llm_mode: str = "off"
+    ollama_transport: object | None = None
     allowed_hosts: frozenset[str] = frozenset({"127.0.0.1", "localhost", "[::1]"})
     allowed_origins: frozenset[str] = frozenset(
         {"http://127.0.0.1", "http://localhost", "https://127.0.0.1", "https://localhost"}
@@ -61,12 +66,27 @@ class ResumePreview(BaseModel):
     name_confirmation_required: bool
     warnings: list[str]
     missing: list[str]
+    # path -> "rule" | "llm"; LLM values are shown to the user for confirmation.
+    sources: dict[str, str] = Field(default_factory=dict)
 
 
 class ConfirmNameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     family: str = Field(min_length=1, max_length=60)
     given: str = Field(min_length=1, max_length=80)
+
+
+class EditResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, max_length=80)
+    value: str = Field(max_length=500)
+
+
+class FillFieldRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    form_field: str = Field(min_length=1, max_length=80)
+    label: str = Field(max_length=300)
+    value: str = Field(min_length=1, max_length=500)
 
 
 class PlanRequest(BaseModel):
@@ -94,6 +114,7 @@ def default_settings() -> ApiSettings:
         database_path=data_dir / "task_state.sqlite3",
         browser_profile_root=data_dir / "browser_profiles",
         api_token=token,
+        llm_mode=os.environ.get("JOB_AGENT_LLM", "auto"),
     )
 
 
@@ -195,6 +216,19 @@ def create_app(
             profile, scope_warnings = enforce_korean_mvp_profile(parsed["resume_profile"])
         except ResumeParseError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+        sources = {path: "rule" for path, value in korean_mvp_values(profile).items() if value}
+        if should_use_llm(profile, settings.llm_mode):
+            url, model = ollama_settings()
+            try:
+                fields = await request_ollama(
+                    str(inspected["text"]), url=url, model=model, transport=settings.ollama_transport
+                )
+                profile, llm_sources, llm_warnings = merge_llm_values(profile, proposed_values(fields), str(inspected["text"]))
+                profile, more_scope_warnings = enforce_korean_mvp_profile(profile)
+                sources.update({path: source for path, source in llm_sources.items() if korean_mvp_values(profile).get(path)})
+                scope_warnings = [*scope_warnings, *llm_warnings, *more_scope_warnings]
+            except LlmUnavailable as error:
+                scope_warnings = [*scope_warnings, str(error)]
         secret = vault.get(task_id)
         vault.put(task_id, secret.model_copy(update={"profile": profile}))
         values = korean_mvp_values(profile)
@@ -214,10 +248,11 @@ def create_app(
             name_confirmation_required=bool(
                 profile.personal.name.family
                 and profile.personal.name.given
-                and not profile.personal.name.confirmed
+                and not name_components_usable(profile.personal.name)
             ),
             warnings=warnings,
             missing=[path for path, value in values.items() if not value],
+            sources=sources,
         )
 
     @app.post(
@@ -242,6 +277,33 @@ def create_app(
         return ResumePreview(
             values=values,
             name_confirmation_required=False,
+            warnings=[],
+            missing=[path for path, value in values.items() if not value],
+        )
+
+    @app.patch(
+        "/api/tasks/{task_id}/resume",
+        response_model=ResumePreview,
+        dependencies=[Depends(authorize)],
+    )
+    async def edit_resume(task_id: str, payload: EditResumeRequest) -> ResumePreview:
+        get_task(task_id)
+        secret = vault.get(task_id)
+        if secret.profile is None:
+            raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
+        try:
+            profile = set_resume_value(secret.profile, payload.path, payload.value)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=f"값을 저장할 수 없습니다: {error}") from None
+        vault.put(task_id, secret.model_copy(update={"profile": profile}))
+        values = korean_mvp_values(profile)
+        return ResumePreview(
+            values=values,
+            name_confirmation_required=bool(
+                profile.personal.name.family
+                and profile.personal.name.given
+                and not name_components_usable(profile.personal.name)
+            ),
             warnings=[],
             missing=[path for path, value in values.items() if not value],
         )
@@ -355,8 +417,27 @@ def create_app(
             raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
         try:
             report = await browser_worker.fill(task_id, secret.profile)
+            # One-click fill inspects internally, so pass through 'planned' first.
+            store.transition(task_id, "planned")
             store.transition(task_id, "awaiting_review")
             return report
+        except BrowserSessionError as error:
+            raise browser_error(error) from None
+
+    @app.post(
+        "/api/tasks/{task_id}/browser/fill-field",
+        response_model=BrowserFillResult,
+        dependencies=[Depends(authorize)],
+    )
+    async def fill_browser_field(task_id: str, payload: FillFieldRequest) -> BrowserFillResult:
+        get_task(task_id)
+        secret = vault.get(task_id)
+        if secret.profile is None:
+            raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
+        try:
+            return await browser_worker.fill_field(
+                task_id, secret.profile, payload.form_field, payload.label, payload.value
+            )
         except BrowserSessionError as error:
             raise browser_error(error) from None
 

@@ -8,8 +8,8 @@ from pydantic import ValidationError
 from pypdf import PdfReader
 
 from .constants import EDUCATION_FIELDS, EDUCATION_LEVELS, MAX_RESUME_BYTES, MAX_RESUME_PAGES
-from .models import EducationRecord, PersonalInfo, ResumeProfile, clean_field, flatten_resume_profile
-from .names import infer_name_parts
+from .models import EducationRecord, PersonalInfo, PersonName, ResumeProfile, clean_field, flatten_resume_profile
+from .names import infer_latin_name, infer_name_parts
 
 
 class ResumeParseError(Exception):
@@ -29,6 +29,15 @@ SECTION_LABELS = {
 }
 
 PERSONAL_LABELS = {
+    "영문 이름": "name_en",
+    "영문이름": "name_en",
+    "영문 성명": "name_en",
+    "영문성명": "name_en",
+    "이름(영문)": "name_en",
+    "성명(영문)": "name_en",
+    "english name": "name_en",
+    "name (english)": "name_en",
+    "name in english": "name_en",
     "이름": "name",
     "성명": "name",
     "성함": "name",
@@ -158,6 +167,20 @@ def _split_label_value(line: str) -> tuple[str, str] | None:
     return None
 
 
+_LATIN_NAME_LINE_RE = re.compile(r"[A-Za-z][A-Za-z'-]*(?:,?\s+[A-Za-z][A-Za-z'-]*){1,3}")
+
+
+def _romanized_name_line(lines: list[str], name: PersonName) -> str:
+    """An unlabeled Latin-only line whose first or last word is the romanized Hangul surname."""
+    if not name.full:
+        return ""
+    for line in lines[:15]:
+        if _LATIN_NAME_LINE_RE.fullmatch(line) and _normal_label(line) not in PERSONAL_LABELS:
+            if infer_latin_name(line, name).split_method == "native_surname_match":
+                return line
+    return ""
+
+
 def extract_resume_profile(text: str) -> dict[str, object]:
     """Extract a conservative profile without calling an LLM."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -171,7 +194,7 @@ def extract_resume_profile(text: str) -> dict[str, object]:
     def record(scope: str, field: str, value: str, method: str, confidence: float) -> None:
         nonlocal skills
         try:
-            clean = clean_field("full" if field == "name" else field, value)
+            clean = clean_field("full" if field in {"name", "name_en"} else field, value)
         except ValueError:
             warnings.append(f"{field}: 형식 검사를 통과하지 못해 자동 입력에서 제외했습니다")
             return
@@ -236,6 +259,8 @@ def extract_resume_profile(text: str) -> dict[str, object]:
             record("personal", "phone", match.group(0), "regex", 0.85)
 
     name = infer_name_parts(personal.pop("name", ""))
+    latin = personal.pop("name_en", "") or _romanized_name_line(lines, name)
+    name_en = infer_latin_name(latin, name) if latin else None
     records = []
     for level in EDUCATION_LEVELS:
         values = education[level]
@@ -244,7 +269,10 @@ def extract_resume_profile(text: str) -> dict[str, object]:
                 records.append(EducationRecord(education_level=level, **values))
             except ValidationError:
                 raise ResumeParseError(f"{level} 학력 정보의 형식을 확인해 주세요") from None
-    profile = ResumeProfile(personal=PersonalInfo(name=name, **personal), education=records, skills=skills)
+    personal_info = PersonalInfo(name=name, **personal)
+    if name_en is not None:
+        personal_info = personal_info.model_copy(update={"name_en": name_en})
+    profile = ResumeProfile(personal=personal_info, education=records, skills=skills)
     flat = flatten_resume_profile(profile)
     required = ("name", "email", "phone")
     missing = [field for field in required if not flat[field]]

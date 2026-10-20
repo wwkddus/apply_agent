@@ -24,9 +24,11 @@ INSPECT_SCRIPT = r"""
     const element = document.getElementById(id);
     return element ? element.innerText || element.textContent || "" : "";
   }).join(" "));
+  // Icon-button captions such as "Open calendar" describe the control, not the field.
+  const genericAria = /^(open calendar|toggle suggestions|clear value|날짜 선택|select|선택|open|열기)$/i;
   const labelFor = (element) => {
     const aria = clean(element.getAttribute("aria-label"));
-    if (aria) return aria;
+    if (aria && !genericAria.test(aria)) return aria;
     const labelled = textFromIds(element.getAttribute("aria-labelledby"));
     if (labelled) return labelled;
     if (element.labels && element.labels.length) {
@@ -84,6 +86,9 @@ INSPECT_SCRIPT = r"""
   }));
   const selectedValuePresent = (element, kind) => {
     if (kind === "radio_group") return Boolean(element.checked);
+    if (element.hasAttribute("data-placeholder-shown") || element.getAttribute("data-placeholder") === "true") return false;
+    // A calendar trigger shows its date as text; a label such as "날짜 선택" has no digits.
+    if (kind === "custom_date_picker" && element.tagName === "BUTTON") return /\d/.test(element.innerText || element.textContent || "");
     if (kind === "custom_select") {
       const text = clean(element.innerText || element.textContent || element.getAttribute("data-value"));
       return Boolean(text && !/^(선택|선택하세요|미선택|choose|select)$/i.test(text));
@@ -103,6 +108,7 @@ INSPECT_SCRIPT = r"""
     if (type === "file") return "file";
     if (role === "combobox" && tag !== "input") return "custom_select";
     if (tag === "button" && element.getAttribute("aria-haspopup") === "listbox") return "custom_select";
+    if (tag === "button" && ["grid", "dialog"].includes(element.getAttribute("aria-haspopup"))) return "custom_date_picker";
     if (tag === "input" && (role === "combobox" || element.hasAttribute("aria-autocomplete") || element.hasAttribute("list"))) return "custom_combobox";
     if (tag === "input" && element.readOnly && element.getAttribute("aria-haspopup") === "dialog") return "custom_date_picker";
     if (tag === "input") return "text";
@@ -118,7 +124,7 @@ INSPECT_SCRIPT = r"""
   const used = new Set();
   let sequence = 0;
   const standard = Array.from(document.querySelectorAll(
-    "input, textarea, select, [role=combobox], button[aria-haspopup=listbox]"
+    "input, textarea, select, [role=combobox], button[aria-haspopup=listbox], button[aria-haspopup=grid], button[aria-haspopup=dialog][name]"
   )).filter(visible);
 
   // Treat a clearly labelled year/month/day select group as one date field.
@@ -179,8 +185,8 @@ INSPECT_SCRIPT = r"""
     if (fields.length >= limit || used.has(element)) continue;
     const tag = element.tagName.toLowerCase();
     const type = clean(element.getAttribute("type")).toLowerCase();
-    if (type === "hidden" || type === "password" || ["submit", "reset", "button", "image"].includes(type)) continue;
-    if (tag === "button" && !(element.getAttribute("role") === "combobox" || element.getAttribute("aria-haspopup") === "listbox")) continue;
+    if (type === "hidden" || type === "password" || (tag === "input" && ["submit", "reset", "button", "image"].includes(type))) continue;
+    if (tag === "button" && !(element.getAttribute("role") === "combobox" || ["listbox", "grid", "dialog"].includes(element.getAttribute("aria-haspopup")))) continue;
     const label = labelFor(element);
     if (isSensitive(element, label)) continue;
     const kind = kindFor(element);
@@ -199,7 +205,9 @@ INSPECT_SCRIPT = r"""
       type: type || tag,
       widget_kind: kind,
       required: Boolean(element.required || element.getAttribute("aria-required") === "true"),
-      placeholder: clean(element.getAttribute("placeholder")) || null,
+      placeholder: clean(element.getAttribute("placeholder"))
+        || (tag === "button" && element.getAttribute("data-placeholder") === "true" ? clean(element.innerText) : "")
+        || null,
       section: sectionFor(element),
       group_labels: groupLabelsFor(element),
       name: clean(element.getAttribute("name")) || null,
@@ -238,6 +246,38 @@ INSPECT_SCRIPT = r"""
       current_value_present: radios.some((radio) => radio.checked),
       readonly: false,
       options: radios.slice(0, 100).map((radio) => ({ value: clean(radio.value), text: labelFor(radio) })),
+      pattern: null,
+      maxlength: null,
+      date_format: null,
+      parts: {},
+      part_options: {},
+    });
+  }
+
+  // ARIA button groups (role=radiogroup > role=radio) that are not backed by native radios.
+  for (const group of Array.from(document.querySelectorAll("[role=radiogroup]")).filter(visible)) {
+    if (fields.length >= limit) break;
+    if (group.querySelector("input[type=radio]")) continue;
+    const radios = Array.from(group.querySelectorAll("[role=radio]")).filter(visible);
+    if (radios.length < 2) continue;
+    const label = labelFor(group);
+    if (isSensitive(group, label)) continue;
+    const key = `${prefix}-${sequence++}`;
+    group.setAttribute(FIELD_ATTR, key);
+    fields.push({
+      key,
+      label,
+      type: "radio",
+      widget_kind: "aria_radio_group",
+      required: group.getAttribute("aria-required") === "true",
+      placeholder: null,
+      section: sectionFor(group),
+      group_labels: groupLabelsFor(group),
+      name: clean(group.getAttribute("name") || group.getAttribute("data-name")) || null,
+      element_id: null,
+      current_value_present: radios.some((radio) => radio.getAttribute("aria-checked") === "true"),
+      readonly: group.getAttribute("aria-readonly") === "true" || group.getAttribute("aria-disabled") === "true",
+      options: radios.slice(0, 50).map((radio) => ({ value: clean(radio.innerText || radio.getAttribute("aria-label")), text: clean(radio.innerText || radio.getAttribute("aria-label")) })),
       pattern: null,
       maxlength: null,
       date_format: null,

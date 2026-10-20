@@ -56,8 +56,53 @@ class DesktopWindowTests(unittest.TestCase):
         self.window.inspection = {"decisions": []}
         self.window.fill_report = {"safe_next_available": True}
         self.window._update_buttons()
-        self.assertTrue(self.window.fill_button.isHidden())
+        self.assertFalse(self.window.fill_button.isHidden())
+        self.assertEqual(self.window.fill_button.text(), "이 페이지 다시 자동 입력")
         self.assertFalse(self.window.next_button.isHidden())
+
+    def test_step_bar_follows_progress(self):
+        def active():
+            return [label.objectName() for label in self.window.step_labels].index("stepActive")
+
+        self.assertEqual(active(), 0)
+        self.window.preview = {"name_confirmation_required": False, "values": {}}
+        self.window._update_buttons()
+        self.assertEqual(active(), 1)
+        self.window.browser = {"can_inspect": True}
+        self.window._update_buttons()
+        self.assertEqual(active(), 2)
+        self.window.fill_report = {"results": [{"status": "needs_human"}], "safe_next_available": False}
+        self.window._update_buttons()
+        self.assertEqual(active(), 3)
+        self.window.fill_report = {"results": [{"status": "filled_verified"}], "safe_next_available": False}
+        self.window._update_buttons()
+        self.assertEqual(active(), 4)
+
+    def test_items_needing_review_come_first_with_a_detail_button(self):
+        self.window._show_results(
+            [
+                {"form_field": "a", "label": "이름", "resume_path": "person.name.full", "status": "filled_verified", "reason": ""},
+                {"form_field": "b", "label": "학교명", "resume_path": "education.university.school_name",
+                 "status": "needs_human", "reason": "후보 중에서 골라 주세요", "candidates": ["A대", "B대"]},
+            ]
+        )
+        self.assertEqual(self.window.table_items[0]["form_field"], "b")
+        self.assertEqual(self.window.table.cellWidget(0, 3).text(), "상세")
+        self.assertIsNone(self.window.table.cellWidget(1, 3))
+
+    def test_review_dialog_offers_resume_value_and_page_candidates(self):
+        from job_agent_core.desktop import ReviewDialog
+
+        dialog = ReviewDialog(
+            self.window,
+            {"label": "학교명", "resume_path": "education.university.school_name", "status": "needs_human",
+             "reason": "", "candidates": ["예시대학교 A캠퍼스", "예시대학교 B캠퍼스"]},
+            "예시대학교",
+        )
+        items = [dialog.value_box.itemText(index) for index in range(dialog.value_box.count())]
+        self.assertEqual(items, ["예시대학교", "예시대학교 A캠퍼스", "예시대학교 B캠퍼스"])
+        dialog.value_box.setCurrentIndex(2)
+        self.assertEqual(dialog.value(), "예시대학교 B캠퍼스")
 
 
 if __name__ == "__main__":
