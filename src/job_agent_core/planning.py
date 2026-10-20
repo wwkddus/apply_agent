@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .constants import ALLOWED_RESUME_PATHS, NAME_EN_PATHS, NAME_PATHS
+from .constants import ALLOWED_RESUME_PATHS, DERIVED_PATHS, NAME_EN_PATHS, NAME_PATHS
 from .mapping import FormField, MappingRecord
 from .models import EducationRecord, ResumeProfile, clean_field
 from .names import confirm_name_parts, infer_latin_name, infer_name_parts, name_components_usable
@@ -41,7 +41,26 @@ class FillAction(BaseModel):
         }
 
 
+def highest_education(profile: ResumeProfile) -> str:
+    """최종 학력 wording from the records; a graduate school without a stated degree stays '대학원'."""
+    records = {record.education_level: record for record in profile.education if record.school_name}
+    graduate = records.get("graduate_school")
+    if graduate is not None:
+        degree = graduate.degree.casefold()
+        if "박사" in degree or "doctor" in degree or "phd" in degree:
+            return "박사"
+        if "석사" in degree or "master" in degree:
+            return "석사"
+        return "대학원"
+    university = records.get("university")
+    if university is not None:
+        return "전문학사" if "전문" in university.degree or "associate" in university.degree.casefold() else "학사"
+    return ""
+
+
 def get_resume_value(profile: ResumeProfile, path: str) -> str:
+    if path == "education.highest_level":
+        return highest_education(profile)
     if path.startswith("person.name."):
         return str(getattr(profile.personal.name, path.rsplit(".", 1)[1]))
     if path.startswith("person.name_en."):
@@ -64,7 +83,7 @@ def field_name_for_path(path: str) -> str:
 
 def set_resume_value(profile: ResumeProfile, path: str, value: str) -> ResumeProfile:
     """Return a copy with one user-corrected value; raises ValueError for invalid input."""
-    if path not in ALLOWED_RESUME_PATHS:
+    if path not in ALLOWED_RESUME_PATHS or path in DERIVED_PATHS:
         raise ValueError("지원하지 않는 이력서 항목입니다")
     clean = clean_field(field_name_for_path(path), value)
     personal = profile.personal

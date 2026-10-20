@@ -21,6 +21,7 @@ from .browser_session import (
 from .browser_worker import BrowserAutomationWorker, BrowserFillReport, BrowserFillResult, BrowserInspectionReport
 from .constants import MAX_RESUME_BYTES
 from .korean_scope import enforce_korean_mvp_profile, korean_mvp_values
+from .resume_lookup import lookup_answers
 from .mapping import FormField
 from .names import confirm_name_parts, name_components_usable, normalized_name
 from .planning import set_resume_value
@@ -87,6 +88,21 @@ class FillFieldRequest(BaseModel):
     form_field: str = Field(min_length=1, max_length=80)
     label: str = Field(max_length=300)
     value: str = Field(min_length=1, max_length=500)
+    fingerprint: str = Field(default="", max_length=600)
+    # True when the value is one of the page's own option texts that the user picked.
+    chosen_from_candidates: bool = False
+
+
+class LookupRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fingerprint: str = Field(min_length=1, max_length=600)
+    status: str = Field(max_length=40)
+
+
+class LookupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Rows of the fill report that still need a second check.
+    rows: list[LookupRow] = Field(default_factory=list, max_length=300)
 
 
 class PlanRequest(BaseModel):
@@ -230,7 +246,7 @@ def create_app(
             except LlmUnavailable as error:
                 scope_warnings = [*scope_warnings, str(error)]
         secret = vault.get(task_id)
-        vault.put(task_id, secret.model_copy(update={"profile": profile}))
+        vault.put(task_id, secret.model_copy(update={"profile": profile, "resume_text": str(inspected["text"])}))
         values = korean_mvp_values(profile)
         warnings = [*parsed["warnings"], *scope_warnings]
         available = [path for path, value in values.items() if value]
@@ -425,6 +441,32 @@ def create_app(
             raise browser_error(error) from None
 
     @app.post(
+        "/api/tasks/{task_id}/browser/lookup",
+        response_model=BrowserFillReport,
+        dependencies=[Depends(authorize)],
+    )
+    async def lookup_browser(task_id: str, payload: LookupRequest) -> BrowserFillReport:
+        """Separate from fill so the rule results reach the user before the slow local LLM runs."""
+        get_task(task_id)
+        secret = vault.get(task_id)
+        if secret.profile is None:
+            raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
+        lookup = None
+        if settings.llm_mode != "off" and secret.resume_text:
+            url, model = ollama_settings()
+
+            async def lookup(fields):
+                return await lookup_answers(
+                    secret.resume_text, fields, url=url, model=model, transport=settings.ollama_transport
+                )
+
+        try:
+            requests = [(row.fingerprint, row.status) for row in payload.rows]
+            return await browser_worker.fill_lookup(task_id, secret.profile, lookup, requests)
+        except BrowserSessionError as error:
+            raise browser_error(error) from None
+
+    @app.post(
         "/api/tasks/{task_id}/browser/fill-field",
         response_model=BrowserFillResult,
         dependencies=[Depends(authorize)],
@@ -436,7 +478,13 @@ def create_app(
             raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
         try:
             return await browser_worker.fill_field(
-                task_id, secret.profile, payload.form_field, payload.label, payload.value
+                task_id,
+                secret.profile,
+                payload.form_field,
+                payload.label,
+                payload.value,
+                fingerprint=payload.fingerprint,
+                chosen=payload.chosen_from_candidates,
             )
         except BrowserSessionError as error:
             raise browser_error(error) from None

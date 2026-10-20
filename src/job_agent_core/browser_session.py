@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from playwright.async_api import BrowserContext, Error as PlaywrightError, Page, Playwright, Route, async_playwright
 from pydantic import BaseModel, ConfigDict, Field
 
+from .address_search import POSTCODE_HOSTS
 from .security import URLPolicyError, domain_matches, sanitize_url, validate_target_url
 
 
@@ -127,7 +128,8 @@ class BrowserSessionManager:
                 context=context,
                 page=page,
                 profile_dir=profile_dir,
-                approved_domains={target_hostname},
+                # The Kakao/Daum postcode search window is allowed by default (user decision, 2026-10-20).
+                approved_domains={target_hostname, *POSTCODE_HOSTS},
             )
             self._sessions[task_id] = session
 
@@ -147,6 +149,17 @@ class BrowserSessionManager:
                     approved = False
                     candidate = None
                 if not approved:
+                    hostname = (urlsplit(request.url).hostname or "").casefold()
+                    try:
+                        popup = request.frame.page != session.page
+                    except Exception:
+                        popup = False
+                    if popup and hostname:
+                        # A new window (e.g. the address search) is asked about like a frame host;
+                        # approving it must not navigate the application page there.
+                        session.discovered_frame_hosts.add(hostname)
+                        await route.abort("blockedbyclient")
+                        return
                     session.blocked_url = request.url
                     session.blocked_hostname = (urlsplit(request.url).hostname or "").casefold() or None
                     await route.abort("blockedbyclient")

@@ -5,6 +5,7 @@ from typing import Any
 
 from playwright.async_api import Frame, Page
 
+from .address_search import is_postcode_host
 from .mapping import FormField
 
 
@@ -20,12 +21,65 @@ INSPECT_SCRIPT = r"""
     const rect = element.getBoundingClientRect();
     return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   };
+  // Custom-styled radios/checkboxes are often 0x0; the visible label is what the user clicks.
+  const shown = (element) => visible(element) || (
+    element instanceof HTMLInputElement && ["radio", "checkbox"].includes(element.type)
+    && [...Array.from(element.labels || []), element.closest("label")].some((label) => label && visible(label))
+  );
+  const ownText = (node) => clean(Array.from(node.childNodes)
+    .filter((child) => child.nodeType === Node.TEXT_NODE).map((child) => child.textContent).join(" "));
   const textFromIds = (ids) => clean(String(ids || "").split(/\s+/).map((id) => {
     const element = document.getElementById(id);
     return element ? element.innerText || element.textContent || "" : "";
   }).join(" "));
   // Icon-button captions such as "Open calendar" describe the control, not the field.
   const genericAria = /^(open calendar|toggle suggestions|clear value|날짜 선택|select|선택|open|열기)$/i;
+  // Separate form fields; native radios sharing a name count as one field.
+  const FIELD_SELECTOR = "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]), textarea, select, "
+    + "[role=combobox], [role=radiogroup], button[aria-haspopup=listbox], button[aria-haspopup=grid], button[aria-haspopup=dialog]";
+  const otherFieldCount = (container, element) => {
+    const units = new Set();
+    for (const item of container.querySelectorAll(FIELD_SELECTOR)) {
+      if (item === element || element.contains(item) || item.contains(element) || !shown(item)) continue;
+      units.add(item.type === "radio" && item.name ? `radio:${item.name}` : item);
+    }
+    return units.size;
+  };
+  // Pages sometimes point aria-labelledby at a missing id; a person still reads the label just above.
+  // Use it only when the nearest container holding a label wraps this one field and nothing else.
+  const nearbyLabel = (element) => {
+    let node = element.parentElement;
+    for (let depth = 0; node && depth < 5; depth += 1, node = node.parentElement) {
+      // Sites often style the caption as <div class="form-label"> / <div class="select-label">.
+      const heading = Array.from(node.querySelectorAll("label, legend, [class*='label']"))
+        .find((item) => !item.contains(element) && visible(item) && clean(item.innerText || item.textContent || ""));
+      if (!heading) continue;
+      return otherFieldCount(node, element) ? "" : clean(heading.innerText || heading.textContent || "");
+    }
+    return "";
+  };
+  // A question written as the text of a wrapping block (e.g. <div class="form-label">질문<input></div>).
+  const ancestorText = (element) => {
+    let node = element.parentElement;
+    for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      if (otherFieldCount(node, element)) return "";
+      const text = ownText(node);
+      if (text) return text.slice(0, 200);
+    }
+    return "";
+  };
+  // The heading of a radio group: the first text block next to the options that holds no radio.
+  const radioGroupHeading = (radios) => {
+    let node = radios[0].parentElement;
+    while (node && !radios.every((radio) => node.contains(radio))) node = node.parentElement;
+    for (let depth = 0; node && depth < 3; depth += 1, node = node.parentElement) {
+      const heading = Array.from(node.children).find((child) => !child.querySelector("input, select, textarea")
+        && visible(child) && clean(child.innerText || child.textContent || "").length > 0);
+      if (heading) return clean(heading.innerText || heading.textContent || "").slice(0, 120);
+      if (node.querySelectorAll("input[type=radio]").length > radios.length) break;
+    }
+    return "";
+  };
   const labelFor = (element) => {
     const aria = clean(element.getAttribute("aria-label"));
     if (aria && !genericAria.test(aria)) return aria;
@@ -46,6 +100,10 @@ INSPECT_SCRIPT = r"""
       const heading = row.querySelector("legend, label, [data-label], .label, th");
       if (heading && heading !== element) return clean(heading.innerText || heading.textContent || "");
     }
+    const nearby = nearbyLabel(element);
+    if (nearby) return nearby;
+    const question = ancestorText(element);
+    if (question) return question;
     return clean(element.getAttribute("placeholder") || element.getAttribute("name") || element.id);
   };
   const sectionFor = (element) => {
@@ -125,7 +183,7 @@ INSPECT_SCRIPT = r"""
   let sequence = 0;
   const standard = Array.from(document.querySelectorAll(
     "input, textarea, select, [role=combobox], button[aria-haspopup=listbox], button[aria-haspopup=grid], button[aria-haspopup=dialog][name]"
-  )).filter(visible);
+  )).filter(shown);
 
   // Treat a clearly labelled year/month/day select group as one date field.
   for (const select of standard.filter((element) => element.tagName === "SELECT")) {
@@ -230,8 +288,10 @@ INSPECT_SCRIPT = r"""
     radios.forEach((radio) => radio.setAttribute(FIELD_ATTR, key));
     const fieldset = first.closest("fieldset, [role=radiogroup]");
     const legend = fieldset ? fieldset.querySelector("legend, [role=heading]") : null;
-    const label = clean((legend && (legend.innerText || legend.textContent)) || labelFor(first));
+    const label = clean((legend && (legend.innerText || legend.textContent)) || radioGroupHeading(radios) || labelFor(first));
     if (isSensitive(first, label)) continue;
+    // Radios without distinct values (all "on") are chosen by position.
+    const distinct = new Set(radios.map((radio) => radio.value)).size === radios.length;
     fields.push({
       key,
       label,
@@ -245,7 +305,7 @@ INSPECT_SCRIPT = r"""
       element_id: null,
       current_value_present: radios.some((radio) => radio.checked),
       readonly: false,
-      options: radios.slice(0, 100).map((radio) => ({ value: clean(radio.value), text: labelFor(radio) })),
+      options: radios.slice(0, 100).map((radio, index) => ({ value: distinct ? clean(radio.value) : `#${index}`, text: labelFor(radio) })),
       pattern: null,
       maxlength: null,
       date_format: null,
@@ -274,7 +334,7 @@ INSPECT_SCRIPT = r"""
       section: sectionFor(group),
       group_labels: groupLabelsFor(group),
       name: clean(group.getAttribute("name") || group.getAttribute("data-name")) || null,
-      element_id: null,
+      element_id: clean(group.id) || null,
       current_value_present: radios.some((radio) => radio.getAttribute("aria-checked") === "true"),
       readonly: group.getAttribute("aria-readonly") === "true" || group.getAttribute("aria-disabled") === "true",
       options: radios.slice(0, 50).map((radio) => ({ value: clean(radio.innerText || radio.getAttribute("aria-label")), text: clean(radio.innerText || radio.getAttribute("aria-label")) })),
@@ -348,6 +408,27 @@ class PageInspection:
     unapproved_frame_hosts: set[str] = field(default_factory=set)
 
 
+def assign_fingerprints(fields: list[FormField]) -> None:
+    """Name the field by its data-model name when unique, else by section + label + occurrence."""
+    def frame_of(field: FormField) -> str:
+        return field.key.split("-", 2)[1] if field.key.count("-") >= 2 else ""
+
+    names: dict[tuple[str, str], int] = {}
+    for field in fields:
+        if field.name:
+            names[(frame_of(field), field.name)] = names.get((frame_of(field), field.name), 0) + 1
+    seen: dict[tuple[str, str, str], int] = {}
+    for field in fields:
+        frame = frame_of(field)
+        if field.name and names[(frame, field.name)] == 1:
+            field.fingerprint = f"{frame}|name:{field.name}"
+            continue
+        label_key = (frame, field.section, field.label)
+        occurrence = seen.get(label_key, 0)
+        seen[label_key] = occurrence + 1
+        field.fingerprint = f"{frame}|label:{field.section}|{field.label}|{occurrence}"
+
+
 async def inspect_page(
     page: Page,
     *,
@@ -368,6 +449,9 @@ async def inspect_page(
             from urllib.parse import urlsplit
 
             frame_host = (urlsplit(frame.url).hostname or "").casefold()
+            # The postcode search window is driven by the address adapter, not read as form fields.
+            if is_postcode_host(frame_host):
+                continue
             if frame_host and not any(host_allowed(frame_host, approved) for approved in approved_hosts):
                 unapproved_frame_hosts.add(frame_host)
                 continue
@@ -408,6 +492,7 @@ async def inspect_page(
             )
         if len(fields) >= max_fields:
             break
+    assign_fingerprints(fields)
     return PageInspection(
         fields=fields,
         targets=targets,

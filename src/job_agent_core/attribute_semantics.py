@@ -37,11 +37,13 @@ def _has_prefix(tokens: list[str], *prefixes: str) -> bool:
 
 # Sections whose values are not the applicant's own resume data in scope.
 _OUT_OF_SCOPE = (
-    "work", "career", "experience", "experiences", "company", "employment", "employer", "military",
+    "work", "career", "experience", "experiences", "company", "employment", "employer",
     "family", "emergency", "reference", "referee", "recommend", "recommender", "guardian", "parent",
     "spouse", "award", "awards", "certificate", "certification", "license", "language", "activity",
     "activities", "training", "project", "projects", "cover", "letter", "question", "answers", "custom",
     "survey", "consent", "agree", "agreement", "terms",
+    # Job preferences of this application (희망 근무지, 근무 형태, 지원 경로, 희망 연봉...), not resume data.
+    "working", "job", "apply", "hope", "wish", "desired", "preferred", "salary", "recruit",
 )
 _EDUCATION_CONTEXT = ("education", "educational", "edu", "academic", "school", "schools", "univ", "university",
                       "universities", "college", "graduate", "major", "majors", "gpa")
@@ -49,9 +51,10 @@ _EDUCATION_CONTEXT = ("education", "educational", "edu", "academic", "school", "
 
 def _education_level(tokens: list[str]) -> str | None:
     joined = "".join(tokens)
-    if "highschool" in joined or _has(tokens, "hs"):
+    # Common Korean HR abbreviations: eduhg* (high school) and edugd* (graduate school) blocks.
+    if "highschool" in joined or _has(tokens, "hs") or _has_prefix(tokens, "eduhg"):
         return "high_school"
-    if _has_prefix(tokens, "graduate", "master", "doctor", "phd") or "gradschool" in joined:
+    if _has_prefix(tokens, "graduate", "master", "doctor", "phd", "edugd") or "gradschool" in joined:
         return "graduate_school"
     if _has_prefix(tokens, "universit", "undergrad", "college", "bachelor", "univ"):
         return "university"
@@ -60,8 +63,10 @@ def _education_level(tokens: list[str]) -> str | None:
 
 def _education_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
+    if _has(tokens, "yn"):
+        return UNMAPPED, "예/아니요 선택(편입·복수전공 여부 등)은 사용자가 결정"
     if _has(tokens, "major", "majors"):
-        if _has(tokens, "classification", "category", "field", "type", "affiliation", "series"):
+        if _has(tokens, "classification", "category", "field", "type", "affiliation", "series", "family"):
             return UNMAPPED, "전공 구분/계열은 이력서 항목이 아님"
         if _has(tokens, "double", "second", "minor", "sub"):
             return "double_major", "double major"
@@ -99,9 +104,17 @@ def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
     if _has(tokens, "country", "nation", "dial") and _has(tokens, "code"):
         return UNMAPPED, "국가 코드는 이력서 항목이 아님"
+    if _has(tokens, "military", "army"):
+        return "person.military_status", "military service"
+    if _has(tokens, "disability") or (_has(tokens, "disabled") and _has(tokens, "yn", "status", "type", "info")):
+        return "person.disability_status", "disability"
+    if _has(tokens, "veteran", "veterans"):
+        return "person.veteran_status", "veteran"
     if "birth" in joined or _has(tokens, "dob", "birthday"):
         return "person.birth_date", "birth date"
     if _has(tokens, "email", "mail"):
+        if _has(tokens, "sub", "secondary", "second", "alt", "alternate", "extra", "other", "2"):
+            return "person.email_secondary", "secondary email"
         return "person.email", "email"
     if _has(tokens, "phone", "mobile", "cellphone", "cell", "tel", "hp", "contact"):
         return "person.phone", "phone"

@@ -46,6 +46,8 @@ class SensitiveTaskData(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
     raw_url: str
     profile: ResumeProfile | None = None
+    # Extracted resume text for the local page-driven lookup; memory only, like the profile.
+    resume_text: str = ""
 
 
 class TaskNotFound(KeyError):

@@ -15,13 +15,16 @@ from .browser_session import (
     BrowserSessionManager,
     BrowserStatus,
 )
+from .address_search import address_matches, search_address, search_query
 from .form_inspector import ControlTarget, FieldTarget, PageInspection, inspect_page
-from .mapping import FormField
+from .mapping import FormField, FormOption
 from .models import ResumeProfile
 from .security import domain_matches, is_safe_next_control, is_submit_like_control
 from .models import clean_field
-from .planning import field_name_for_path
-from .constants import ALLOWED_RESUME_PATHS
+from .planning import FillAction, field_name_for_path, get_resume_value
+from .constants import ALLOWED_RESUME_PATHS, SENSITIVE_STATUS_PATHS
+from .resume_llm import LlmUnavailable
+from .resume_lookup import DATE_WIDGETS, NO_EVIDENCE, LookupFn, LookupItem, user_only_reason
 from .widgets import WidgetAction, format_like_example, pick_option, plan_widget_action
 from .worker import KoreanPlanningWorker, WorkerPlan
 
@@ -63,10 +66,19 @@ class BrowserFillResult(BaseModel):
         "skipped",
         "failed_validation",
         "field_not_found",
+        "disabled_on_page",
+        "filled_llm_unconfirmed",
+        # Filled from the resume and read back, but a sensitive item (병역/장애/보훈) the user confirms.
+        "filled_review",
+        # Ledger states: every detected field gets a row, nothing disappears silently.
+        "user_only",
+        "pending_lookup",
+        "not_in_resume",
     ]
     reason: str
     attempts: int = 0
     widget_kind: str = ""
+    fingerprint: str = ""
     # Option texts read from the page when the agent could not pick one; shown to the user.
     candidates: list[str] = Field(default_factory=list)
 
@@ -81,6 +93,10 @@ class BrowserFillReport(BaseModel):
     kept_existing_count: int
     needs_human_count: int
     failed_count: int
+    disabled_count: int = 0
+    lookup_filled_count: int = 0
+    # One-line message for the user, e.g. that the local LLM lookup was skipped.
+    notice: str = ""
     safe_next_available: bool
     submit_control_count: int
 
@@ -148,6 +164,97 @@ class _Outcome:
     error: str | None = None
     expected: str | None = None
     candidates: list[str] = field(default_factory=list)
+    disabled: bool = False
+
+
+DISABLED_REASON = "페이지에서 비활성화된 항목입니다. 다른 선택에 따라 입력할 수 없는 상태일 수 있습니다 (예: 재학 중이면 졸업일 없음)."
+MAX_OPTION_CANDIDATES = 30
+_PLACEHOLDER_OPTION_RE = re.compile(r"(선택|선택하세요|선택해\s*주세요|미선택|choose|select)(\s*\.{0,3})", re.I)
+
+
+def _row(
+    field: FormField, path: str | None, status: str, reason: str, candidates: list[str] | None = None
+) -> BrowserFillResult:
+    return BrowserFillResult(
+        form_field=field.key,
+        label=field.label,
+        resume_path=path,
+        widget_kind=field.widget_kind,
+        fingerprint=field.fingerprint,
+        status=status,
+        reason=reason,
+        candidates=candidates if candidates is not None else _page_options(field),
+    )
+
+
+def _ledger_rows(fields: list[FormField], reported: set[str]) -> list[BrowserFillResult]:
+    """A row for every field the rules did not report, with why it was left or what happens next."""
+    rows: list[BrowserFillResult] = []
+    for field in fields:
+        if field.key in reported:
+            continue
+        reason = user_only_reason(field)
+        if reason:
+            rows.append(_row(field, None, "user_only", reason))
+        elif field.current_value_present:
+            rows.append(_row(field, None, "kept_existing", "페이지에 이미 입력된 값을 유지했습니다."))
+        else:
+            rows.append(_row(field, None, "pending_lookup", "규칙에 없는 항목이라 이력서에서 추가로 확인합니다."))
+    return rows
+
+
+def _lookup_action(field: FormField, value: str) -> WidgetAction:
+    """Plan a looked-up value with the same adapters; dates reuse the date planning rules."""
+    path = f"lookup:{field.name or field.label}"[:200]
+    if field.widget_kind in DATE_WIDGETS:
+        try:
+            full = len(re.findall(r"\d+", value)) >= 3
+            iso = clean_field("birth_date" if full else "admission_date", value)
+        except ValueError:
+            return WidgetAction(form_field=field.key, resume_path=path, widget_kind=field.widget_kind,
+                                status="needs_human", reason="날짜 형식을 확인할 수 없습니다")
+        planned = plan_widget_action(field, "person.birth_date" if full else "education.university.admission_date", iso)
+    elif field.widget_kind == "custom_combobox":
+        planned = plan_widget_action(field, "skills", value)
+    else:
+        planned = plan_widget_action(field, "user_input", value)
+    return planned.model_copy(update={"resume_path": path})
+
+
+def _page_options(field: FormField) -> list[str]:
+    """Option texts already detected on the page, offered to the user in the review dialog."""
+    texts = [" ".join(option.text.split()) for option in field.options]
+    texts = [text for text in texts if text and not _PLACEHOLDER_OPTION_RE.fullmatch(text)]
+    return list(dict.fromkeys(texts))[:MAX_OPTION_CANDIDATES]
+
+
+# Never answered by the second check: 상세주소/우편번호 without a confirmed 기본주소 would be filled
+# alone, and the model cannot tell which word of a romanized name is the surname.
+_NO_LOOKUP_PATHS = {
+    "person.address",
+    "person.postal_code",
+    "person.address_detail",
+    "person.name_en.family",
+    "person.name_en.given",
+}
+
+
+_GRADUATE_WORD_RE = re.compile(r"대학원|post\s*graduate|graduate\s*school", re.I)
+# (level, add-button wording, name shown to the user). High school blocks are never opened.
+_ADD_SECTION_BUTTONS = (
+    ("university", re.compile(r"(대학|university|college|학사).{0,20}(추가|add)|add.{0,20}(university|college)", re.I), "대학 학력"),
+    ("graduate_school", re.compile(r"(대학원|post\s*graduate|graduate\s*school).{0,20}(추가|add)|add.{0,20}(post\s*graduate|graduate)", re.I), "대학원 학력"),
+)
+
+
+def _address_group(actions: list[FillAction], profile: ResumeProfile) -> dict[str, FillAction]:
+    """주소/우편번호/상세주소 actions handled together when the page's 주소 field is read-only."""
+    by_path = {action.resume_path: action for action in actions}
+    address = by_path.get("person.address")
+    if address is None or address.status != "readonly" or not get_resume_value(profile, "person.address"):
+        return {}
+    return {path: action for path, action in by_path.items()
+            if path in {"person.address", "person.postal_code", "person.address_detail"}}
 
 
 class BrowserAutomationWorker:
@@ -248,65 +355,34 @@ class BrowserAutomationWorker:
 
     async def fill(self, task_id: str, profile: ResumeProfile) -> BrowserFillReport:
         prepared = await self._prepare(task_id, profile)
+        opened = await self._expand_sections(prepared, profile)
+        if opened:
+            prepared = await self._prepare(task_id, profile)
         fields = {item.key: item for item in prepared.inspection.fields}
         targets = prepared.inspection.targets
         widget_actions = {item.form_field: item for item in prepared.plan.widget_actions}
         results: list[BrowserFillResult] = []
+        address_group = _address_group(prepared.plan.fill_actions, profile)
+        deferred = {action.form_field for action in address_group.values()}
         for action in prepared.plan.fill_actions:
-            field = fields[action.form_field]
-            base = {
-                "form_field": action.form_field,
-                "label": field.label,
-                "resume_path": action.resume_path,
-                "widget_kind": field.widget_kind,
-            }
-            if action.status == "kept_existing":
-                results.append(
-                    BrowserFillResult(
-                        **base,
-                        status="kept_existing",
-                        reason="페이지에 이미 입력된 값을 유지했습니다.",
-                    )
-                )
-                continue
-            if action.status in {"missing_required", "missing_optional"}:
-                results.append(
-                    BrowserFillResult(
-                        **base,
-                        status="missing_resume_value",
-                        reason="이력서에서 값을 찾지 못해 입력하지 않았습니다.",
-                    )
-                )
-                continue
-            if action.status != "planned":
-                results.append(BrowserFillResult(**base, status="needs_human", reason=action.reason))
-                continue
-            widget = widget_actions.get(action.form_field)
-            target = targets.get(action.form_field)
-            if target is None:
-                results.append(
-                    BrowserFillResult(**base, status="field_not_found", reason="DOM에서 필드를 다시 찾지 못했습니다.")
-                )
-                continue
-            if widget is None or widget.status != "planned" or widget.action is None:
-                results.append(
-                    BrowserFillResult(
-                        **base,
-                        status="needs_human",
-                        reason=widget.reason if widget else "안전한 입력 방법을 결정하지 못했습니다.",
-                    )
-                )
-                continue
-            results.append(await self._execute(field, target, widget))
+            if action.form_field not in deferred:
+                results.append(await self._fill_action(action, fields, targets, widget_actions))
+        if address_group:
+            results.extend(await self._fill_address(task_id, profile, address_group, fields, targets, widget_actions))
 
+        results.extend(_ledger_rows(prepared.inspection.fields, {item.form_field for item in results}))
         try:
             refreshed = await self._prepare(task_id, profile)
         except BrowserSessionError:
             refreshed = prepared
+        # A field disabled in the first pass may be enabled by a later choice (e.g. graduation status).
+        if refreshed is not prepared and any(item.status == "disabled_on_page" for item in results):
+            results = await self._retry_disabled(results, refreshed)
         filled_count = sum(item.status == "filled_verified" for item in results)
         kept_count = sum(item.status == "kept_existing" for item in results)
         failed_count = sum(item.status in {"failed_validation", "field_not_found"} for item in results)
-        manual_count = len(results) - filled_count - kept_count - failed_count
+        disabled_count = sum(item.status == "disabled_on_page" for item in results)
+        manual_count = sum(item.status in {"needs_human", "missing_resume_value", "skipped", "filled_review"} for item in results)
         return BrowserFillReport(
             browser=await self.sessions.status(task_id),
             results=results,
@@ -315,9 +391,306 @@ class BrowserAutomationWorker:
             kept_existing_count=kept_count,
             needs_human_count=manual_count,
             failed_count=failed_count,
+            disabled_count=disabled_count,
+            notice=(
+                f"{', '.join(opened)} 입력란을 '추가' 버튼으로 열어 채웠습니다. 필요 없으면 해당 블록의 '삭제'를 누르세요."
+                if opened
+                else ""
+            ),
             safe_next_available=len(refreshed.safe_next) == 1,
             submit_control_count=len(refreshed.submit_controls),
         )
+
+    async def _expand_sections(self, prepared: PreparedPage, profile: ResumeProfile) -> list[str]:
+        """Click '대학/대학원 학력 추가' when the resume has that level and the page has no field for it yet.
+
+        Only explicit type=button add buttons are clicked; they add an empty block on the page and save
+        nothing. Save and submit buttons are never clicked.
+        """
+        mapped = {mapping.resume_path for mapping in prepared.plan.mappings}
+        opened: list[str] = []
+        for level, pattern, name in _ADD_SECTION_BUTTONS:
+            if not get_resume_value(profile, f"education.{level}.school_name"):
+                continue
+            if f"education.{level}.school_name" in mapped:
+                continue
+            buttons = [
+                control for control in prepared.inspection.controls
+                if control.tag in {"button", "input"} and control.attr_type == "button"
+                and not _submit_like(control) and pattern.search(control.text)
+                and not (level == "university" and _GRADUATE_WORD_RE.search(control.text))
+            ]
+            if not buttons:
+                continue
+            locator = buttons[0].frame.locator(buttons[0].selector)
+            try:
+                if await locator.count() != 1 or not await locator.is_visible():
+                    continue
+                await locator.click(timeout=5_000)
+            except PlaywrightError:
+                continue
+            await asyncio.sleep(0.5)
+            opened.append(name)
+        return opened
+
+    async def _fill_action(
+        self,
+        action: FillAction,
+        fields: dict[str, FormField],
+        targets: dict[str, FieldTarget],
+        widget_actions: dict[str, WidgetAction],
+    ) -> BrowserFillResult:
+        field = fields[action.form_field]
+        base = {
+            "form_field": action.form_field,
+            "label": field.label,
+            "resume_path": action.resume_path,
+            "widget_kind": field.widget_kind,
+            "fingerprint": field.fingerprint,
+            "candidates": _page_options(field),
+        }
+        if action.status == "kept_existing":
+            return BrowserFillResult(**base, status="kept_existing", reason="페이지에 이미 입력된 값을 유지했습니다.")
+        if action.status in {"missing_required", "missing_optional"}:
+            return BrowserFillResult(
+                **base, status="missing_resume_value", reason="이력서에서 값을 찾지 못해 입력하지 않았습니다."
+            )
+        if action.status != "planned":
+            return BrowserFillResult(**base, status="needs_human", reason=action.reason)
+        widget = widget_actions.get(action.form_field)
+        target = targets.get(action.form_field)
+        if target is None:
+            return BrowserFillResult(**base, status="field_not_found", reason="DOM에서 필드를 다시 찾지 못했습니다.")
+        if widget is None or widget.status != "planned" or widget.action is None:
+            return BrowserFillResult(
+                **base,
+                status="needs_human",
+                reason=widget.reason if widget else "안전한 입력 방법을 결정하지 못했습니다.",
+            )
+        return await self._execute(field, target, widget)
+
+    async def _fill_address(
+        self,
+        task_id: str,
+        profile: ResumeProfile,
+        group: dict[str, FillAction],
+        fields: dict[str, FormField],
+        targets: dict[str, FieldTarget],
+        widget_actions: dict[str, WidgetAction],
+    ) -> list[BrowserFillResult]:
+        """Read-only 주소 via the postcode search window; 상세주소 only after the address is confirmed."""
+        address_action = group["person.address"]
+        postal_action = group.get("person.postal_code")
+        detail_action = group.get("person.address_detail")
+
+        def row(action: FillAction, status: str, reason: str, candidates: list[str] | None = None) -> BrowserFillResult:
+            return _row(fields[action.form_field], action.resume_path, status, reason, candidates)
+
+        session = self.sessions.get(task_id)
+        target = targets.get(address_action.form_field)
+        address = get_resume_value(profile, "person.address")
+        outcome = None
+        verified = False
+        if target is not None:
+            page = await self.sessions.application_page(task_id)
+            outcome = await search_address(
+                page,
+                target.frame,
+                target.selector,
+                address=address,
+                postal_code=profile.personal.postal_code,
+                host_approved=lambda host: any(domain_matches(host, item) for item in session.approved_domains),
+            )
+            if outcome.approval_host:
+                session.discovered_frame_hosts.add(outcome.approval_host)
+            if outcome.ok:
+                actual = await self._read_back(targets[address_action.form_field])
+                verified = address_matches(actual, outcome.address, search_query(address))
+        results: list[BrowserFillResult] = []
+        if verified:
+            assert outcome is not None
+            results.append(row(address_action, "filled_verified", "주소 검색 창에서 이력서 주소와 일치하는 결과 하나를 선택하고 페이지 값을 다시 확인했습니다."))
+            if postal_action is not None:
+                postal_target = targets.get(postal_action.form_field)
+                actual = await self._read_back(postal_target) if postal_target else ""
+                if re.sub(r"\D", "", actual) == outcome.zonecode:
+                    results.append(row(postal_action, "filled_verified", "주소 검색으로 입력된 우편번호를 다시 확인했습니다."))
+                else:
+                    results.append(row(postal_action, "needs_human", "주소 검색 후 우편번호 칸에서 선택한 결과의 우편번호가 확인되지 않았습니다."))
+            if detail_action is not None:
+                results.append(await self._fill_action(detail_action, fields, targets, widget_actions))
+            return results
+        if outcome is None:
+            reason, candidates = "DOM에서 주소 칸을 다시 찾지 못했습니다.", []
+        elif outcome.ok:
+            outcome.trace.append("readback:mismatch")
+            reason, candidates = "주소를 선택했지만 페이지의 주소 칸에서 확인되지 않았습니다. 직접 확인해 주세요.", []
+        else:
+            reason, candidates = outcome.reason, outcome.candidates
+        if outcome is not None and outcome.trace:
+            # Steps only, never values: shows on a real site where the search stopped.
+            reason += f" (진단: {' > '.join(outcome.trace)})"
+        results.append(row(address_action, "needs_human", reason, candidates))
+        if postal_action is not None:
+            results.append(row(postal_action, "needs_human", "주소 검색 창에서 주소를 고르면 함께 입력되는 항목입니다."))
+        if detail_action is not None:
+            results.append(
+                row(detail_action, "needs_human", "기본주소가 아직 입력되지 않아 상세주소도 입력하지 않았습니다. 주소를 선택한 뒤 '다시 자동 입력'을 누르면 채웁니다.")
+            )
+        return results
+
+    @staticmethod
+    async def _read_back(target: FieldTarget, timeout: float = 3.0) -> str:
+        """The field's value once the page has written it (the widget fills it asynchronously)."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        value = ""
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                value = (await target.frame.locator(target.selector).first.input_value()).strip()
+            except PlaywrightError:
+                value = ""
+            if value:
+                break
+            await asyncio.sleep(0.2)
+        return value
+
+    async def fill_lookup(
+        self,
+        task_id: str,
+        profile: ResumeProfile,
+        lookup: LookupFn | None,
+        requests: list[tuple[str, str]],
+    ) -> BrowserFillReport:
+        """Second check of the rows fill() could not finish; requests are (fingerprint, previous status).
+
+        Rows that were only waiting for this check always get a final state. Rows the rules already
+        reported (missing value, ambiguous option) are returned only when the lookup changes them.
+        """
+        prepared = await self._prepare(task_id, profile)
+        by_fingerprint = {item.fingerprint: item for item in prepared.inspection.fields}
+        mappings = {item.form_field: item for item in prepared.plan.mappings}
+        pending: set[str] = set()
+        rule_paths: dict[str, str] = {}
+        items: list[LookupItem] = []
+        results: list[BrowserFillResult] = []
+        for fingerprint, previous in requests:
+            field = by_fingerprint.get(fingerprint)
+            if field is None:
+                continue
+            if previous == "pending_lookup":
+                pending.add(field.key)
+            reason = user_only_reason(field)
+            if reason:
+                if previous == "pending_lookup":
+                    results.append(_row(field, None, "user_only", reason))
+                continue
+            if field.current_value_present:
+                if previous == "pending_lookup":
+                    results.append(_row(field, None, "kept_existing", "페이지에 이미 입력된 값을 유지했습니다."))
+                continue
+            mapping = mappings.get(field.key)
+            path = mapping.resume_path if mapping and mapping.resume_path in ALLOWED_RESUME_PATHS else ""
+            if path in _NO_LOOKUP_PATHS:
+                # Address parts follow the address search; English name parts need a known order.
+                continue
+            if field.widget_kind == "custom_select" and not field.options:
+                field = await self._read_options(field, prepared.inspection.targets.get(field.key))
+            if path:
+                rule_paths[field.key] = path
+            items.append(LookupItem(field=field, known_value=get_resume_value(profile, path) if path else ""))
+
+        notice = ""
+        accepted: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        if items and lookup is not None:
+            try:
+                accepted, rejected = await lookup(items)
+            except LlmUnavailable as error:
+                notice = f"이력서 추가 확인을 건너뛰었습니다: {error}"
+        elif items:
+            notice = "로컬 LLM이 꺼져 있어 이력서 추가 확인을 하지 않았습니다."
+        for item in items:
+            field = item.field
+            value = accepted.get(field.key)
+            if value:
+                target = prepared.inspection.targets.get(field.key)
+                results.append(await self._fill_looked_up(field, target, value, rule_paths.get(field.key)))
+            elif field.key in pending:
+                results.append(
+                    _row(field, None, "not_in_resume", rejected.get(field.key) or notice or NO_EVIDENCE, _page_options(field))
+                )
+
+        failed = sum(item.status in {"failed_validation", "field_not_found"} for item in results)
+        return BrowserFillReport(
+            browser=await self.sessions.status(task_id),
+            results=results,
+            field_count=len(prepared.inspection.fields),
+            filled_count=0,
+            kept_existing_count=sum(item.status == "kept_existing" for item in results),
+            needs_human_count=sum(item.status in {"needs_human", "filled_llm_unconfirmed"} for item in results),
+            failed_count=failed,
+            disabled_count=sum(item.status == "disabled_on_page" for item in results),
+            lookup_filled_count=sum(item.status == "filled_llm_unconfirmed" for item in results),
+            notice=notice,
+            safe_next_available=len(prepared.safe_next) == 1,
+            submit_control_count=len(prepared.submit_controls),
+        )
+
+    async def _read_options(self, field: FormField, target: FieldTarget | None) -> FormField:
+        """Open a closed listbox once to learn its options, then close it without choosing."""
+        if target is None:
+            return field
+        locator = target.frame.locator(target.selector).first
+        try:
+            if not await locator.is_visible() or not await locator.is_enabled():
+                return field
+            await locator.click()
+            texts = [" ".join((await option.inner_text()).split()) for option in await self._wait_for_options(target, 1.5)]
+            await self._dismiss(target, locator, typed=False)
+        except PlaywrightError:
+            return field
+        options = [FormOption(value=text, text=text) for text in dict.fromkeys(texts) if text]
+        return field.model_copy(update={"options": options[:MAX_OPTION_CANDIDATES]})
+
+    async def _fill_looked_up(
+        self, field: FormField, target: FieldTarget | None, value: str, rule_path: str | None
+    ) -> BrowserFillResult:
+        candidates = [value, *[text for text in _page_options(field) if text != value]]
+        action = _lookup_action(field, value)
+        if rule_path:
+            # A rule-mapped field keeps its resume path; only the option was converted.
+            action = action.model_copy(update={"resume_path": rule_path})
+        if target is None:
+            return _row(field, action.resume_path, "field_not_found", "DOM에서 필드를 다시 찾지 못했습니다.", candidates)
+        if action.status != "planned" or action.action is None:
+            return _row(
+                field, action.resume_path, "needs_human",
+                f"이력서에서 찾은 값 '{value}'을(를) 입력할 방법을 확정하지 못했습니다.", candidates,
+            )
+        result = await self._execute(field, target, action, overwrite=False)
+        if result.status in {"filled_verified", "filled_review"}:
+            result = result.model_copy(
+                update={
+                    "status": "filled_llm_unconfirmed",
+                    "reason": "로컬 LLM이 이력서 원문에서 찾아 입력했습니다. 값이 맞는지 확인해 주세요.",
+                }
+            )
+        return result.model_copy(update={"candidates": candidates})
+
+    async def _retry_disabled(self, results: list[BrowserFillResult], refreshed: PreparedPage) -> list[BrowserFillResult]:
+        by_fingerprint = {item.fingerprint: item for item in refreshed.inspection.fields}
+        widget_actions = {item.form_field: item for item in refreshed.plan.widget_actions}
+        updated: list[BrowserFillResult] = []
+        for result in results:
+            field = by_fingerprint.get(result.fingerprint) if result.status == "disabled_on_page" else None
+            widget = widget_actions.get(field.key) if field else None
+            target = refreshed.inspection.targets.get(field.key) if field else None
+            if field is None or widget is None or target is None or widget.status != "planned" or widget.action is None:
+                updated.append(result)
+                continue
+            retried = await self._execute(field, target, widget)
+            updated.append(retried.model_copy(update={"attempts": result.attempts + retried.attempts}))
+        return updated
 
     async def fill_field(
         self,
@@ -326,12 +699,21 @@ class BrowserAutomationWorker:
         form_field: str,
         label: str,
         value: str,
+        *,
+        fingerprint: str = "",
+        chosen: bool = False,
     ) -> BrowserFillResult:
         """Fill one field with a value the user chose in the review dialog, then read it back."""
         prepared = await self._prepare(task_id, profile)
-        field = next((item for item in prepared.inspection.fields if item.key == form_field), None)
+        # Positional keys shift when the page adds fields; the fingerprint must name exactly one field.
+        if fingerprint:
+            matches = [item for item in prepared.inspection.fields if item.fingerprint == fingerprint]
+        else:
+            matches = [item for item in prepared.inspection.fields if item.key == form_field]
+        field = matches[0] if len(matches) == 1 else None
         if field is None or field.label != label:
             raise BrowserSessionError("페이지가 바뀌어 이 항목을 다시 찾지 못했습니다. '이 페이지 자동 입력'을 다시 실행해 주세요.")
+        form_field = field.key
         if field.widget_kind in {"checkbox", "file", "unsupported"} or (field.readonly and field.widget_kind != "custom_date_picker"):
             raise BrowserSessionError("이 항목은 브라우저에서 직접 처리해야 합니다.")
         mapping = next((item for item in prepared.plan.mappings if item.form_field == form_field), None)
@@ -349,9 +731,15 @@ class BrowserAutomationWorker:
                 label=field.label,
                 resume_path=path,
                 widget_kind=field.widget_kind,
+                fingerprint=field.fingerprint,
                 status="needs_human",
                 reason=action.reason,
+                candidates=_page_options(field),
             )
+        if chosen:
+            # Search with the text that produced the candidates, then click the identical option.
+            original = get_resume_value(profile, path) if path in ALLOWED_RESUME_PATHS else ""
+            action = action.model_copy(update={"chosen": True, "search_text": original or clean})
         target = prepared.inspection.targets.get(form_field)
         if target is None:
             raise BrowserSessionError("DOM에서 필드를 다시 찾지 못했습니다.")
@@ -389,6 +777,7 @@ class BrowserAutomationWorker:
             "label": field.label,
             "resume_path": action.resume_path,
             "widget_kind": field.widget_kind,
+            "fingerprint": field.fingerprint,
         }
         try:
             if not overwrite and await self._has_existing(target):
@@ -408,6 +797,8 @@ class BrowserAutomationWorker:
         for attempt, candidate in enumerate(candidates, start=1):
             try:
                 outcome = await self._execute_once(target, candidate)
+                if outcome.disabled:
+                    return BrowserFillResult(**base, status="disabled_on_page", reason=DISABLED_REASON, attempts=attempt)
                 if outcome.error:
                     return BrowserFillResult(
                         **base,
@@ -417,6 +808,13 @@ class BrowserAutomationWorker:
                         candidates=outcome.candidates,
                     )
                 if await self._verified(target, candidate, outcome.expected):
+                    if action.resume_path in SENSITIVE_STATUS_PATHS:
+                        return BrowserFillResult(
+                            **base,
+                            status="filled_review",
+                            reason="이력서 값대로 입력하고 다시 확인했습니다. 병역·장애·보훈은 민감 정보라 직접 확인해 주세요.",
+                            attempts=attempt,
+                        )
                     return BrowserFillResult(
                         **base,
                         status="filled_verified",
@@ -492,8 +890,11 @@ class BrowserAutomationWorker:
         if await locator.count() < 1:
             return _Outcome("DOM에서 필드를 다시 찾지 못했습니다.")
         first = locator.first
-        if not await first.is_visible() or not await first.is_enabled():
-            return _Outcome("보이지 않거나 비활성화된 필드는 자동 입력하지 않습니다.")
+        if target.widget_kind == "radio_group":
+            if not await first.is_enabled():
+                return _Outcome("보이지 않거나 비활성화된 필드는 자동 입력하지 않습니다.", disabled=True)
+        elif not await first.is_visible() or not await first.is_enabled():
+            return _Outcome("보이지 않거나 비활성화된 필드는 자동 입력하지 않습니다.", disabled=True)
         assert action.value is not None
         if action.action == "fill":
             assert isinstance(action.value, str)
@@ -507,10 +908,18 @@ class BrowserAutomationWorker:
             return _Outcome(expected=action.value)
         if action.action == "check_radio":
             assert isinstance(action.value, str)
-            matches = [item for item in await locator.all() if (await item.get_attribute("value")) == action.value]
+            matches = await self._radio_matches(locator, action.value)
             if len(matches) != 1:
                 return _Outcome("일치하는 라디오 선택지를 하나로 확정할 수 없습니다.")
-            await matches[0].check()
+            radio = matches[0]
+            if await radio.is_visible():
+                await radio.check()
+            else:
+                # A custom-styled radio is hidden behind its label; click the label like the user would.
+                label = radio.locator("xpath=ancestor::label[1]")
+                if await label.count() != 1 or not await label.is_visible():
+                    return _Outcome("선택지 버튼을 화면에서 찾지 못했습니다. 직접 선택해 주세요.")
+                await label.click()
             return _Outcome(expected=action.value)
         if action.action == "choose_aria_radio":
             assert isinstance(action.value, str)
@@ -524,10 +933,10 @@ class BrowserAutomationWorker:
             assert isinstance(action.value, str)
             await first.click()
             if action.action == "choose_suggestion":
-                await first.fill(action.value)
+                await first.fill(action.search_text or action.value)
             options = await self._wait_for_options(target)
-            texts = [(await option.inner_text()).strip() for option in options]
-            index, candidates = pick_option(texts, action.value, action.resume_path)
+            texts = [" ".join((await option.inner_text()).split()) for option in options]
+            index, candidates = pick_option(texts, action.value, action.resume_path, chosen=action.chosen)
             if index is None:
                 await self._dismiss(target, first, typed=action.action == "choose_suggestion")
                 if not texts:
@@ -542,6 +951,15 @@ class BrowserAutomationWorker:
             assert isinstance(action.value, str)
             return await self._set_custom_date(target, first, action.value)
         return _Outcome("지원하지 않는 입력 동작입니다.")
+
+    @staticmethod
+    async def _radio_matches(locator: Locator, value: str) -> list[Locator]:
+        """Radios by value, or by position ('#1') when the page gives them no distinct values."""
+        radios = await locator.all()
+        if re.fullmatch(r"#\d+", value):
+            index = int(value[1:])
+            return [radios[index]] if index < len(radios) else []
+        return [item for item in radios if (await item.get_attribute("value")) == value]
 
     @staticmethod
     async def _wait_for_options(target: FieldTarget, timeout: float = 3.0) -> list[Locator]:
@@ -646,10 +1064,8 @@ class BrowserAutomationWorker:
         locator = target.frame.locator(target.selector)
         if action.action == "check_radio":
             assert isinstance(action.value, str)
-            for radio in await locator.all():
-                if await radio.is_checked() and (await radio.get_attribute("value")) == action.value:
-                    return True
-            return False
+            matches = await self._radio_matches(locator, action.value)
+            return len(matches) == 1 and await matches[0].is_checked()
         first = locator.first
         if action.action == "choose_aria_radio":
             for radio in await first.locator('[role="radio"][aria-checked="true"]').all():

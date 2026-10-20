@@ -90,6 +90,28 @@ class DesktopWindowTests(unittest.TestCase):
         self.assertEqual(self.window.table.cellWidget(0, 3).text(), "상세")
         self.assertIsNone(self.window.table.cellWidget(1, 3))
 
+    def test_lookup_results_are_merged_after_the_rule_results(self):
+        self.window.fill_report = {
+            "results": [
+                {"form_field": "a", "label": "이름", "resume_path": "person.name.full", "status": "filled_verified", "reason": ""}
+            ],
+            "safe_next_available": False,
+        }
+        self.window.fill_summary = "입력·검증 1개"
+        self.window._looked_up(
+            {
+                "results": [
+                    {"form_field": "c", "label": "회사명", "resume_path": "lookup:company",
+                     "status": "filled_llm_unconfirmed", "reason": "", "candidates": ["예시주식회사"]}
+                ],
+                "lookup_filled_count": 1,
+                "notice": "",
+            }
+        )
+        self.assertEqual([item["form_field"] for item in self.window.table_items], ["c", "a"])
+        self.assertEqual(self.window.warning_value.text(), "1")
+        self.assertIn("추가로 찾아 입력한 1개", self.window.status_label.text())
+
     def test_review_dialog_offers_resume_value_and_page_candidates(self):
         from job_agent_core.desktop import ReviewDialog
 

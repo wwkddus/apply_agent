@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from PySide6.QtCore import QElapsedTimer, QObject, QRunnable, QThreadPool, Qt, Signal
+from PySide6.QtCore import QElapsedTimer, QObject, QRunnable, QThreadPool, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 
+
 STATUS_LABELS = {
     "planned": "입력 가능",
     "kept_existing": "기존 값 유지",
@@ -48,10 +49,23 @@ STATUS_LABELS = {
     "missing_resume_value": "이력서 값 없음",
     "failed_validation": "검증 실패",
     "field_not_found": "필드 변경됨",
+    "disabled_on_page": "입력 불가(비활성)",
+    "filled_llm_unconfirmed": "입력됨 · 확인 필요",
+    "filled_review": "입력됨 · 확인 필요",
+    "user_only": "직접 처리",
+    "pending_lookup": "이력서 확인 중",
+    "not_in_resume": "이력서에 없음",
 }
 
 # Results the user can resolve from the review dialog.
-REVIEWABLE = {"needs_human", "failed_validation", "missing_resume_value", "field_not_found"}
+REVIEWABLE = {
+    "needs_human", "failed_validation", "missing_resume_value", "field_not_found", "filled_llm_unconfirmed", "filled_review",
+}
+# Rows that also get a '상세' button so the user can type a value the resume did not have.
+DETAIL = REVIEWABLE | {"not_in_resume"}
+# Rows sent to the local-LLM second check after the rule fill.
+SECOND_CHECK = {"pending_lookup", "missing_resume_value", "needs_human"}
+ROW_ORDER = {"not_in_resume": 1, "pending_lookup": 1, "user_only": 2, "disabled_on_page": 3, "kept_existing": 4, "filled_verified": 5}
 
 STEPS = (
     "① 이력서·URL 준비",
@@ -142,16 +156,28 @@ class DesktopApiClient:
         return self._request("POST", f"/api/tasks/{task_id}/browser/inspect", timeout=45)
 
     def fill_browser(self, task_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/api/tasks/{task_id}/browser/fill", timeout=60)
+        return self._request("POST", f"/api/tasks/{task_id}/browser/fill", timeout=120)
+
+    def lookup_browser(self, task_id: str, rows: list[dict[str, str]]) -> dict[str, Any]:
+        # The local-LLM second check can take a few minutes on a laptop.
+        return self._request("POST", f"/api/tasks/{task_id}/browser/lookup", json={"rows": rows}, timeout=300)
 
     def next_page(self, task_id: str) -> dict[str, Any]:
         return self._request("POST", f"/api/tasks/{task_id}/browser/next", timeout=30)
 
-    def fill_field(self, task_id: str, form_field: str, label: str, value: str) -> dict[str, Any]:
+    def fill_field(
+        self, task_id: str, item: dict[str, Any], value: str, *, chosen: bool = False
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/api/tasks/{task_id}/browser/fill-field",
-            json={"form_field": form_field, "label": label, "value": value},
+            json={
+                "form_field": item["form_field"],
+                "label": item.get("label", ""),
+                "value": value,
+                "fingerprint": item.get("fingerprint", ""),
+                "chosen_from_candidates": chosen,
+            },
             timeout=45,
         )
 
@@ -177,7 +203,8 @@ class ReviewDialog(QDialog):
         form.addRow("판단 근거", reason)
         self.value_box = QComboBox()
         self.value_box.setEditable(True)
-        choices = [value for value in [resume_value, *item.get("candidates", [])] if value]
+        self.page_options = [value for value in item.get("candidates", []) if value]
+        choices = [value for value in [resume_value, *self.page_options] if value]
         self.value_box.addItems(list(dict.fromkeys(choices)))
         form.addRow("입력할 값", self.value_box)
         layout.addLayout(form)
@@ -194,6 +221,10 @@ class ReviewDialog(QDialog):
 
     def value(self) -> str:
         return self.value_box.currentText().strip()
+
+    def chosen_from_page(self) -> bool:
+        """True when the value is exactly one of the option texts read from the page."""
+        return self.value() in self.page_options
 
 
 class OperationSignals(QObject):
@@ -233,6 +264,7 @@ class ApplyLocalWindow(QMainWindow):
         self.fill_report: dict[str, Any] | None = None
         self.started_at = QElapsedTimer()
         self.pending_domain: str | None = None
+        self.submit_notice_shown = False
         self.table_mode = "preview"
         self.table_items: list[dict[str, Any]] = []
         self.setWindowTitle("Apply Local")
@@ -600,18 +632,68 @@ class ApplyLocalWindow(QMainWindow):
         self.actionable_value.property("caption").setText("입력 완료")
         self.warning_value.setText(str(needs_attention))
         self._update_elapsed()
+        disabled = report.get("disabled_count", 0)
         self.status_label.setText(
             f"입력·검증 {report['filled_count']}개, 기존 값 유지 {report['kept_existing_count']}개, "
             f"직접 확인 {needs_attention}개입니다."
+            + (f" 페이지에서 비활성화된 {disabled}개는 입력하지 않았습니다." if disabled else "")
+            + (f" {report['notice']}" if report.get("notice") else "")
         )
         self._show_results(report["results"])
-        if report.get("submit_control_count"):
+        self._update_buttons()
+        # Started after this operation finishes so the rule results stay visible meanwhile.
+        QTimer.singleShot(0, self._lookup)
+
+    def _finish_fill(self) -> None:
+        """After the rule fill and the second check: tell once per task that submitting is the user's."""
+        if self.fill_report and self.fill_report.get("submit_control_count") and not self.submit_notice_shown:
+            self.submit_notice_shown = True
             QMessageBox.information(
                 self,
-                "최종 제출 버튼 감지",
-                "Agent는 최종 제출 버튼을 누르지 않습니다. 모든 내용을 확인한 뒤 브라우저에서 직접 제출하세요.",
+                "최종 제출은 직접",
+                "자동 입력이 끝났습니다. Agent는 제출 버튼을 누르지 않습니다. 모든 내용을 확인한 뒤 브라우저에서 직접 제출하세요.",
             )
+
+    def _lookup(self) -> None:
+        if not self.task_id or self.fill_report is None:
+            return
+        rows = [
+            {"fingerprint": item["fingerprint"], "status": item["status"]}
+            for item in self.fill_report["results"]
+            if item.get("status") in SECOND_CHECK and item.get("fingerprint")
+        ]
+        if not rows:
+            self._finish_fill()
+            return
+        self.fill_summary = self.status_label.text()
+        self._run(
+            f"규칙 입력은 끝났습니다. 남은 {len(rows)}개 항목을 로컬 LLM으로 이력서와 다시 대조하고 있습니다… (1~3분)",
+            lambda: self.client.lookup_browser(self.task_id or "", rows),
+            self._looked_up,
+        )
+        # Buttons are disabled while the local model works; say so instead of looking frozen.
+        self.fill_button.setText("이력서 대조 중…")
+
+    def _looked_up(self, report: dict[str, Any]) -> None:
+        if self.fill_report is None:
+            return
+        # Positional keys may differ between requests; the fingerprint names the same field.
+        found = {item.get("fingerprint") or item["form_field"]: item for item in report["results"]}
+        results = [found.pop(item.get("fingerprint") or item["form_field"], item) for item in self.fill_report["results"]]
+        results.extend(found.values())
+        self.fill_report = {**self.fill_report, "results": results}
+        self._show_results(results)
+        pending = sum(item.get("status") in REVIEWABLE for item in results)
+        self.warning_value.setText(str(pending))
+        added = report.get("lookup_filled_count", 0)
+        message = getattr(self, "fill_summary", "")
+        if added:
+            message += f" 이력서에서 추가로 찾아 입력한 {added}개는 '입력됨 · 확인 필요'로 표시했습니다."
+        if report.get("notice"):
+            message += f" {report['notice']}"
+        self.status_label.setText(message.strip())
         self._update_buttons()
+        self._finish_fill()
 
     def _next_page(self) -> None:
         if self.task_id:
@@ -629,13 +711,16 @@ class ApplyLocalWindow(QMainWindow):
 
     def _show_results(self, results: list[dict[str, Any]]) -> None:
         # Items needing the user come first so they are visible without scrolling.
-        ordered = sorted(results, key=lambda item: item.get("status") not in REVIEWABLE)
+        ordered = sorted(results, key=lambda item: 0 if item.get("status") in REVIEWABLE else ROW_ORDER.get(item.get("status"), 5))
         self.table_mode = "results"
         self.table_items = ordered
         pending = sum(item.get("status") in REVIEWABLE for item in ordered)
-        self.table_hint.setText(
-            f"확인이 필요한 {pending}개 항목은 '상세'를 눌러 값을 고르거나 고친 뒤 입력하세요." if pending else "모든 항목을 처리했습니다. 브라우저에서 내용을 검토하세요."
-        )
+        absent = sum(item.get("status") == "not_in_resume" for item in ordered)
+        user_only = sum(item.get("status") == "user_only" for item in ordered)
+        hint = f"확인이 필요한 {pending}개 항목은 '상세'를 눌러 값을 고르거나 고친 뒤 입력하세요." if pending else "확인이 필요한 항목은 없습니다."
+        if absent or user_only:
+            hint += f" 이력서에 없는 항목 {absent}개, 직접 처리할 항목 {user_only}개도 브라우저에서 확인하세요."
+        self.table_hint.setText(hint)
         self._set_rows(
             [
                 (
@@ -645,7 +730,7 @@ class ApplyLocalWindow(QMainWindow):
                 )
                 for item in ordered
             ],
-            actions=["상세" if item.get("status") in REVIEWABLE else "" for item in ordered],
+            actions=["상세" if item.get("status") in DETAIL else "" for item in ordered],
         )
 
     def _set_rows(self, rows: list[tuple[str, str, str]], actions: list[str] | None = None) -> None:
@@ -670,7 +755,7 @@ class ApplyLocalWindow(QMainWindow):
         item = self.table_items[row]
         if self.table_mode == "preview":
             self._edit_resume_value(item["path"], item["value"])
-        elif item.get("status") in REVIEWABLE:
+        elif item.get("status") in DETAIL:
             self._review(item)
 
     def _edit_resume_value(self, path: str, current: str) -> None:
@@ -697,24 +782,31 @@ class ApplyLocalWindow(QMainWindow):
         dialog = ReviewDialog(self, item, values.get(item.get("resume_path") or "", ""))
         if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.value():
             return
-        value = dialog.value()
+        value, chosen = dialog.value(), dialog.chosen_from_page()
         self._run(
             "선택한 값을 입력하고 브라우저에서 다시 확인하고 있습니다…",
-            lambda: self.client.fill_field(self.task_id or "", item["form_field"], item.get("label", ""), value),
+            lambda: self.client.fill_field(self.task_id or "", item, value, chosen=chosen),
             self._field_filled,
         )
 
     def _field_filled(self, result: dict[str, Any]) -> None:
-        results = [result if item.get("form_field") == result.get("form_field") else item for item in self.table_items]
+        def same(item: dict[str, Any]) -> bool:
+            if item.get("fingerprint") and result.get("fingerprint"):
+                return item["fingerprint"] == result["fingerprint"]
+            return item.get("form_field") == result.get("form_field")
+
+        results = [result if same(item) else item for item in self.table_items]
         if self.fill_report is not None:
             self.fill_report = {**self.fill_report, "results": results}
         self._show_results(results)
         self.warning_value.setText(str(sum(item.get("status") in REVIEWABLE for item in results)))
         self.actionable_value.setText(str(sum(item.get("status") == "filled_verified" for item in results)))
-        self.status_label.setText(
-            "입력하고 브라우저에서 확인했습니다." if result.get("status") == "filled_verified" else result.get("reason", "")
-        )
+        filled = result.get("status") == "filled_verified"
+        self.status_label.setText("입력하고 브라우저에서 확인했습니다." if filled else result.get("reason", ""))
         self._update_buttons()
+        if not filled:
+            # Without this the row can look unchanged and the click seems to do nothing.
+            QMessageBox.information(self, "입력하지 못했습니다", result.get("reason", "") or "브라우저에서 직접 확인해 주세요.")
 
     def _current_step(self) -> int:
         if self.preview is None or self.preview.get("name_confirmation_required"):
@@ -767,6 +859,7 @@ class ApplyLocalWindow(QMainWindow):
         self.inspection = None
         self.fill_report = None
         self.pending_domain = None
+        self.submit_notice_shown = False
         self.started_at.invalidate()
         self.detected_value.setText("0")
         self.actionable_value.setText("0")

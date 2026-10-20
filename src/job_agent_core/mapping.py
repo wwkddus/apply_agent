@@ -35,6 +35,8 @@ class FormField(BaseModel):
     date_format: str | None = None
     parts: dict[str, str] = Field(default_factory=dict)
     part_options: dict[str, list[FormOption]] = Field(default_factory=dict)
+    # Stable identity across re-inspections; positional keys shift when the page adds fields.
+    fingerprint: str = ""
 
 
 class MappingRecord(BaseModel):

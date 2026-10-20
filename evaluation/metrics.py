@@ -13,7 +13,15 @@ HUMAN_STATUSES = {
     "name_confirmation_required",
     "readonly",
     "unsupported",
+    # Filled from a local-LLM lookup and read back, but the user still has to confirm it.
+    "filled_llm_unconfirmed",
+    # Sensitive items (병역/장애/보훈) filled from the resume, confirmed by the user.
+    "filled_review",
 }
+# The page itself disabled the field (e.g. no graduation date while enrolled): not fillable.
+DISABLED = "disabled_on_page"
+# Ledger rows that tell the user why a field was left: skipped, but not silently.
+EXPLAINED = {"not_in_resume", "user_only", "pending_lookup", "missing_resume_value"}
 
 
 def _p95(values: list[float]) -> float | None:
@@ -45,6 +53,7 @@ def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dic
 
     mapped_correct = filled = unsafe = attempted = fillable = success = 0
     flagged_human = silent_miss = not_attempted = correct_skip = 0
+    disabled = lookup_filled = 0
     attempts: list[int] = []
     for field, expected, present in rows:
         predicted = field["predicted_path"] or UNMAPPED
@@ -61,11 +70,13 @@ def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dic
             correct_skip += expected == UNMAPPED
         human = field["decision_status"] in HUMAN_STATUSES or status in HUMAN_STATUSES
         flagged_human += human
-        if expected != UNMAPPED and expected in present and status != "kept_existing":
+        disabled += status == DISABLED
+        lookup_filled += status == "filled_llm_unconfirmed"
+        if expected != UNMAPPED and expected in present and status not in {"kept_existing", DISABLED}:
             fillable += 1
             ok = status == "filled_verified" and predicted == expected
             success += ok
-            silent_miss += not ok and not human
+            silent_miss += not ok and not human and status not in EXPLAINED
 
     inspect_ms = [float(page["inspect_ms"]) for page in pages]
     fill_ms = [float(page["fill_ms"]) for page in pages if page.get("fill_ms") is not None]
@@ -82,6 +93,8 @@ def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dic
         "unsafe_fill_rate": _rate(unsafe, filled),
         "human_intervention_rate": _rate(flagged_human, len(rows)),
         "silent_miss_count": silent_miss,
+        "disabled_on_page_count": disabled,
+        "lookup_filled_count": lookup_filled,
         "skip_precision": _rate(correct_skip, not_attempted),
         "retry_mean": round(mean(attempts), 3) if attempts else None,
         "retry_max": max(attempts) if attempts else None,

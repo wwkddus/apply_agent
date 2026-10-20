@@ -80,6 +80,11 @@ class EnglishNameParsingTests(unittest.TestCase):
             ("Hong", "Gildong", "given_family"),
         )
 
+    def test_english_name_label_variants(self):
+        for label in ("영어이름", "영어 이름", "영문명", "여권 영문명"):
+            profile = extract_resume_profile(f"이름 홍길동\n{label} HONG GILDONG\n")["resume_profile"]
+            self.assertEqual(profile.personal.name_en.family, "HONG", label)
+
     def test_unlabeled_romanized_line_needs_a_matching_surname(self):
         found = extract_resume_profile("홍길동\nHONG GILDONG\n이름: 홍길동\n")["resume_profile"]
         self.assertEqual(found.personal.name_en.full, "HONG GILDONG")

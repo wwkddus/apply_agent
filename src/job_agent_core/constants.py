@@ -4,9 +4,14 @@ PERSONAL_FIELDS = (
     "birth_date",
     "phone",
     "email",
+    "email_secondary",
     "postal_code",
     "address",
     "address_detail",
+    # Sensitive status items, filled as written in the resume and always left for the user to confirm.
+    "military_status",
+    "disability_status",
+    "veteran_status",
 )
 
 EDUCATION_LEVELS = ("university", "graduate_school")
@@ -43,9 +48,18 @@ PERSONAL_PATHS = {
     "birth_date": "person.birth_date",
     "phone": "person.phone",
     "email": "person.email",
+    "email_secondary": "person.email_secondary",
     "postal_code": "person.postal_code",
     "address": "person.address",
     "address_detail": "person.address_detail",
+    "military_status": "person.military_status",
+    "disability_status": "person.disability_status",
+    "veteran_status": "person.veteran_status",
+}
+SENSITIVE_STATUS_PATHS = {
+    "person.military_status",
+    "person.disability_status",
+    "person.veteran_status",
 }
 
 RESUME_PATHS = (
@@ -55,7 +69,9 @@ RESUME_PATHS = (
     + ["skills"]
     + [f"education.{level}.{field}" for level in EDUCATION_LEVELS for field in EDUCATION_FIELDS]
 )
-ALLOWED_RESUME_PATHS = frozenset(RESUME_PATHS)
+# Computed from the profile, never edited directly (e.g. 최종 학력 from the education records).
+DERIVED_PATHS = {"education.highest_level"}
+ALLOWED_RESUME_PATHS = frozenset(RESUME_PATHS) | DERIVED_PATHS
 
 DATE_PATHS = {
     "person.birth_date",
@@ -77,6 +93,9 @@ FIELD_MAX_LENGTH = {
     "postal_code": 10,
     "address": 200,
     "address_detail": 120,
+    "military_status": 40,
+    "disability_status": 40,
+    "veteran_status": 40,
     "skills": 500,
     "school_name": 120,
     "campus_type": 20,

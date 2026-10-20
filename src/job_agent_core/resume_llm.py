@@ -23,6 +23,9 @@ from .planning import get_resume_value, set_resume_value
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
+# Ollama's default 4096-token window is shorter than resume + instructions; a truncated
+# prompt silently loses the instructions and makes generation slow.
+NUM_CTX = 16384
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_TEXT_CHARS = 12_000
 
@@ -116,15 +119,16 @@ def is_grounded(value: str, text: str, path: str) -> bool:
     return _compact(value) in _compact(text)
 
 
-async def request_ollama(text: str, *, url: str, model: str, transport: httpx.AsyncBaseTransport | None = None,
-                         timeout: float = 120.0) -> LlmResumeFields:
+async def chat_json(prompt: str, schema: type[BaseModel], *, url: str, model: str,
+                    transport: httpx.AsyncBaseTransport | None = None, timeout: float = 120.0):
+    """One structured, deterministic request to the loopback Ollama server, validated by `schema`."""
     require_loopback(url)
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": PROMPT.format(text=text[:MAX_TEXT_CHARS])}],
-        "format": LlmResumeFields.model_json_schema(),
+        "messages": [{"role": "user", "content": prompt}],
+        "format": schema.model_json_schema(),
         "stream": False,
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, "num_ctx": NUM_CTX},
     }
     try:
         async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
@@ -137,9 +141,21 @@ async def request_ollama(text: str, *, url: str, model: str, transport: httpx.As
         raise LlmUnavailable(f"로컬 Ollama가 요청을 처리하지 못했습니다. ({response.status_code})")
     try:
         content = response.json()["message"]["content"]
-        return LlmResumeFields.model_validate(json.loads(content))
+        return schema.model_validate(json.loads(content))
     except (KeyError, ValueError, TypeError, ValidationError):
-        raise LlmUnavailable("로컬 LLM 응답 형식이 올바르지 않아 규칙 분석 결과만 사용합니다.") from None
+        raise LlmUnavailable("로컬 LLM 응답 형식이 올바르지 않아 규칙 결과만 사용합니다.") from None
+
+
+async def request_ollama(text: str, *, url: str, model: str, transport: httpx.AsyncBaseTransport | None = None,
+                         timeout: float = 120.0) -> LlmResumeFields:
+    return await chat_json(
+        PROMPT.format(text=text[:MAX_TEXT_CHARS]),
+        LlmResumeFields,
+        url=url,
+        model=model,
+        transport=transport,
+        timeout=timeout,
+    )
 
 
 def proposed_values(fields: LlmResumeFields) -> dict[str, str]:

@@ -69,6 +69,34 @@ class EvaluationMetricsTests(unittest.TestCase):
         self.assertEqual(result["retry_max"], 2)
         self.assertEqual(result["retried_fields"], 1)
 
+    def test_disabled_fields_are_not_fillable_and_lookup_fills_need_review(self):
+        run = {
+            "site": "site-b",
+            "resume": {"present_paths": ["education.graduate_school.graduation_date"]},
+            "pages": [
+                {
+                    "page_index": 1,
+                    "inspect_ms": 1.0,
+                    "fill_ms": 1.0,
+                    "fields": [
+                        field("g1", "education.graduate_school.graduation_date", "planned", "disabled_on_page", 1),
+                        field("g2", "lookup:company", "planned", "filled_llm_unconfirmed", 1),
+                        field("g3", "education.graduate_school.graduation_date", "planned", "not_in_resume"),
+                    ],
+                }
+            ],
+        }
+        labels = {
+            ("site-b", 1, "g1"): "education.graduate_school.graduation_date",
+            ("site-b", 1, "g2"): "unmapped",
+            ("site-b", 1, "g3"): "education.graduate_school.graduation_date",
+        }
+        result = score_runs([run], labels)
+        # g3 was not filled but the ledger said why, so it is not a silent miss.
+        self.assertEqual((result["fillable_fields"], result["silent_miss_count"]), (1, 0))
+        self.assertEqual((result["disabled_on_page_count"], result["lookup_filled_count"]), (1, 1))
+        self.assertEqual(result["human_intervention_rate"], round(1 / 3, 4))
+
     def test_empty_labels_do_not_divide_by_zero(self):
         result = score_runs([RUN], {})
         self.assertIsNone(result["field_mapping_accuracy"])

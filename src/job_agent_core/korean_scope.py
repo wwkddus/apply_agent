@@ -20,9 +20,14 @@ KOREAN_MVP_FIELD_LABELS = {
     "person.birth_date": "생년월일",
     "person.phone": "휴대폰번호",
     "person.email": "이메일",
+    "person.email_secondary": "보조 이메일",
     "person.postal_code": "우편번호",
     "person.address": "주소",
     "person.address_detail": "상세주소",
+    "education.highest_level": "최종 학력",
+    "person.military_status": "병역",
+    "person.disability_status": "장애 여부",
+    "person.veteran_status": "보훈 여부",
     "skills": "보유기술",
 }
 
@@ -30,7 +35,7 @@ KOREAN_MVP_FIELD_LABELS = {
 _SITE_EDU_RULES = (
     ("double_major", r"복수\s*전공|부\s*전공|double\s*major|minor"),
     ("admission_type", r"입학\s*구분|admission\s*type"),
-    ("graduation_status", r"졸업\s*(구분|여부|상태)|graduation\s*status"),
+    ("graduation_status", r"졸업\s*(구분|여부|상태)|graduation\s*status|enrollment\s*status|학적\s*(상태|구분)|재학\s*(상태|여부)"),
     ("gpa_scale", r"만점|gpa\s*scale"),
     (
         "school_name",
@@ -47,9 +52,15 @@ _SITE_EDU_RULES = (
 )
 
 _SITE_PERSONAL_RULES = (
+    # Keyword only, so '장애', '장애여부', '장애정보' and 'Disability information' all match.
+    ("person.military_status", r"병역|군\s*필|military"),
+    ("person.disability_status", r"장애|disabilit"),
+    ("person.veteran_status", r"보훈|veteran"),
     ("person.birth_date", r"생년월일|출생|birth"),
     ("person.address_detail", r"상세\s*주소|address\s*(line\s*2|detail)"),
     ("person.postal_code", r"우편\s*번호|postal|zip"),
+    # A second address is a separate item; the primary email must not be copied into it.
+    ("person.email_secondary", r"(보조|2차|추가|두\s*번째|예비|secondary|alternate|alternative|second)\s*(이메일|e-?mail)"),
     ("person.email", r"이메일|e-?mail"),
     ("person.address", r"주소|address"),
     ("person.phone", r"휴대|핸드폰|전화|연락처|phone|mobile|\btel\b"),
@@ -57,7 +68,10 @@ _SITE_PERSONAL_RULES = (
     ("person.name.full", r"성명|이름|full\s*name|applicant\s*name|^name$"),
 )
 
-_GRAD_RE = re.compile(r"대학원|graduate|master|석사|박사|doctor", re.I)
+_GENERIC_EDU_FIELDS = {"region", "campus_type"}
+# 'Graduate date' (졸업일) is not a graduate school; only explicit wordings name the level.
+_GRAD_RE = re.compile(r"대학원|graduate\s*(school|level|program)|postgraduate|master|석사|박사|doctor", re.I)
+_HIGHEST_RE = re.compile(r"최종\s*학력|highest\s*(level\s*of\s*)?education|last(est)?\s*education|final\s*education", re.I)
 _UNIV_RE = re.compile(r"대학교|대학|학부|undergraduate|bachelor|학사|university|college", re.I)
 
 
@@ -109,7 +123,11 @@ def _bare(value: str | None) -> str:
 def _name_role(field: FormField) -> str | None:
     """Classify a name field from its own label, using the placeholder only to refine it."""
     label = _bare(field.label)
-    role = _NAME_ROLES.get(_SCRIPT_QUALIFIER_RE.sub("", label))
+    core = _SCRIPT_QUALIFIER_RE.sub("", label)
+    if re.search(r"[가-힣]", core):
+        # '(영문 이름) Gildong': a romanized example next to a Hangul label is not part of the label.
+        core = re.sub(r"[a-z]+", "", core)
+    role = _NAME_ROLES.get(core)
     if role is None:
         return None
     if _OTHER_SCRIPT_RE.search(label):
@@ -246,6 +264,8 @@ class KoreanMvpMapper:
             return self._unmapped(field, "웹페이지의 지시문처럼 보이는 문구는 신뢰하지 않음")
         if field.widget_kind == "checkbox":
             return self._unmapped(field, "fallback: checkbox (consent/decision) is never mapped to resume data")
+        if _HIGHEST_RE.search(raw):
+            return self._mapped(field, "education.highest_level", 0.9, "fallback: 최종 학력 (이력서 학력에서 계산)")
         hint = infer_from_attributes(field.name, field.element_id)
         if hint is not None:
             # A structured name/id path outranks a visual label that may belong to a neighbouring column.
@@ -260,6 +280,10 @@ class KoreanMvpMapper:
         personal = next((path for path, pattern in _SITE_PERSONAL_RULES if re.search(pattern, lowered, re.I)), None)
         school_word_present = re.search(r"학교|school|university|college|대학", lowered, re.I)
 
+        education_context = re.search(r"학력|학교|대학|전공|school|univ|college|educat|academic", f"{lowered} {field.section}", re.I)
+        if education in _GENERIC_EDU_FIELDS and not education_context:
+            # '지역' or 'campus' alone (e.g. 희망 근무 지역) is not an education item.
+            education = None
         if education and not (personal and education == "school_name" and not school_word_present):
             level = (
                 "graduate_school"
@@ -338,9 +362,13 @@ def korean_mvp_values(profile: ResumeProfile) -> dict[str, str]:
         "person.birth_date": profile.personal.birth_date,
         "person.phone": profile.personal.phone,
         "person.email": profile.personal.email,
+        "person.email_secondary": profile.personal.email_secondary,
         "person.postal_code": profile.personal.postal_code,
         "person.address": profile.personal.address,
         "person.address_detail": profile.personal.address_detail,
+        "person.military_status": profile.personal.military_status,
+        "person.disability_status": profile.personal.disability_status,
+        "person.veteran_status": profile.personal.veteran_status,
         "skills": profile.skills,
     }
     for level in EDUCATION_LEVELS:

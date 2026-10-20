@@ -87,6 +87,36 @@ class WorkerTests(unittest.TestCase):
         )
         self.assertEqual([item.value for item in plan.widget_actions], ["Hong", "Gildong", "홍길동"])
 
+    def test_labels_with_romanized_examples_and_secondary_email(self):
+        name = infer_name_parts("장연")
+        profile = ResumeProfile(
+            personal=PersonalInfo(name=name, name_en=infer_latin_name("ZHANG YAN", name), email="primary@example.com")
+        )
+        fields = [
+            FormField(key="al-f0-0", label="(영문 이름) Gildong"),
+            FormField(key="al-f0-1", label="(영문 성) Hong"),
+            FormField(key="al-f0-2", label="보조 이메일"),
+            FormField(key="al-f0-3", label="이메일"),
+        ]
+        plan = asyncio.run(KoreanPlanningWorker().plan(profile, fields))
+        self.assertEqual(
+            [item.resume_path for item in plan.mappings],
+            ["person.name_en.given", "person.name_en.family", "person.email_secondary", "person.email"],
+        )
+        self.assertEqual([item.value for item in plan.widget_actions], ["YAN", "ZHANG", "primary@example.com"])
+
+    def test_job_preference_fields_are_not_education(self):
+        profile = ResumeProfile(personal=PersonalInfo(name={"full": "홍길동"}))
+        fields = [
+            FormField(key="al-f0-0", label="appWorkingRegion", name="appWorkingRegion"),
+            FormField(key="al-f0-1", label="희망 근무 지역"),
+            FormField(key="al-f0-2", label="지역", section="학력사항"),
+        ]
+        plan = asyncio.run(KoreanPlanningWorker().plan(profile, fields))
+        self.assertEqual(
+            [item.resume_path for item in plan.mappings], ["unmapped", "unmapped", "education.university.region"]
+        )
+
     def test_english_name_with_unknown_order_is_not_split(self):
         name = infer_name_parts("홍길동")
         profile = ResumeProfile(personal=PersonalInfo(name=name, name_en=infer_latin_name("Alex Smith", name)))

@@ -28,6 +28,10 @@ class WidgetAction(BaseModel):
     ] | None = None
     value: str | dict[str, str] | None = None
     fallback_value: str | None = None
+    # Set only for a value the user picked from page candidates: search with this text, then
+    # accept the first option whose text is identical to the pick.
+    search_text: str | None = None
+    chosen: bool = False
     status: Literal["planned", "needs_human"] = "planned"
     reason: str = ""
     inferred: str | None = None
@@ -46,7 +50,7 @@ class WidgetAction(BaseModel):
 
 
 def _norm_option(value: str) -> str:
-    return re.sub(r"\s+", "", str(value or "")).casefold()
+    return re.sub(r"\s+", "", str(value or "")).replace("’", "'").replace("‘", "'").casefold()
 
 
 # Equivalent wordings for enumerated education values (resume wording -> page wording).
@@ -65,6 +69,29 @@ OPTION_SYNONYMS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("석사", "master", "masters", "master'sdegree", "mastersdegree"),
         ("박사", "doctor", "doctorate", "doctoral", "phd", "ph.d."),
     ),
+    "highest_level": (
+        ("학사", "대학교", "4년제", "대학교(4년)", "대학교(4년제)", "대학(4년)", "university", "university(bachelor's)", "bachelor", "bachelor's"),
+        ("전문학사", "전문대", "전문대학", "2년제", "3년제", "대학(2,3년)", "college", "college(diploma)", "diploma", "associate"),
+        ("석사", "대학원(석사)", "석사과정", "postgraduateschool(master's)", "graduateschool(master's)", "master", "master's"),
+        ("박사", "대학원(박사)", "박사과정", "postgraduateschool(doctoral)", "graduateschool(doctoral)", "doctor", "doctoral", "phd"),
+        ("대학원", "postgraduateschool", "graduateschool"),
+        ("고등학교", "highschool"),
+    ),
+    "military_status": (
+        ("비대상", "해당없음", "비해당", "대상아님", "notapplicable", "n/a", "none"),
+        ("군필", "만기전역", "전역", "병역필", "필", "fulfilled", "completed", "served", "discharged"),
+        ("미필", "미필자", "notserved", "notcompleted", "unfulfilled"),
+        ("면제", "병역면제", "exempted", "exemption", "exempt"),
+        ("복무중", "재복무중", "현역", "serving", "inservice"),
+    ),
+    "disability_status": (
+        ("비대상", "해당없음", "비해당", "대상아님", "없음", "비장애", "장애없음", "notapplicable", "no", "none", "n/a"),
+        ("대상", "해당", "있음", "장애", "applicable", "yes"),
+    ),
+    "veteran_status": (
+        ("비대상", "해당없음", "비해당", "대상아님", "없음", "비보훈", "notapplicable", "no", "none", "n/a"),
+        ("대상", "해당", "있음", "보훈대상", "applicable", "yes"),
+    ),
     "admission_type": (
         ("입학", "신입학", "정시", "수시", "regular", "freshman"),
         ("편입", "편입학", "transfer"),
@@ -80,15 +107,32 @@ def _strip_note(value: str) -> str:
 def _equivalents(path: str | None, value: str) -> set[str]:
     target = _norm_option(_strip_note(value))
     field = (path or "").rsplit(".", 1)[-1]
-    for group in OPTION_SYNONYMS.get(field, ()):
+    groups = OPTION_SYNONYMS.get(field, ())
+    for group in groups:
         if target in {_norm_option(item) for item in group}:
             return {_norm_option(item) for item in group}
+    if field.endswith("_status") and field != "graduation_status":
+        # '육군 만기전역' -> 군필: the longest known wording inside the resume text decides.
+        hits = [(len(_norm_option(item)), group) for group in groups for item in group
+                if len(_norm_option(item)) >= 2 and _norm_option(item) in target]
+        if hits:
+            return {_norm_option(item) for item in max(hits, key=lambda hit: hit[0])[1]}
     return {target}
 
 
-def pick_option(texts: list[str], value: str, path: str | None = None) -> tuple[int | None, list[str]]:
-    """Pick exactly one option text for a resume value; otherwise return the plausible candidates."""
+def pick_option(
+    texts: list[str], value: str, path: str | None = None, *, chosen: bool = False
+) -> tuple[int | None, list[str]]:
+    """Pick exactly one option text for a resume value; otherwise return the plausible candidates.
+
+    chosen=True means the user picked this exact text: identical duplicates (the same major listed
+    under two categories) are indistinguishable to the user, so the first one is accepted.
+    """
     usable = [(index, text) for index, text in enumerate(texts) if _norm_option(text)]
+    if chosen:
+        identical = [index for index, text in usable if " ".join(text.split()) == " ".join(value.split())]
+        if identical:
+            return identical[0], []
     if path and path.endswith((".gpa", ".gpa_scale")):
         try:
             wanted = float(value)

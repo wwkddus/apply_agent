@@ -9,6 +9,15 @@ from job_agent_core.browser_session import BrowserLoginNotComplete, BrowserSessi
 from job_agent_core.browser_worker import BrowserAutomationWorker
 from job_agent_core.models import PersonalInfo, ResumeProfile
 from job_agent_core.names import infer_name_parts
+from job_agent_core.resume_llm import LlmUnavailable
+
+
+def second_check(report):
+    return [
+        (item.fingerprint, item.status)
+        for item in report.results
+        if item.status in {"pending_lookup", "missing_resume_value", "needs_human"}
+    ]
 
 
 class FakeSessions:
@@ -156,7 +165,7 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(values, {"#family": "홍", "#given": "길동", "#p1": "010", "#p2": "1234", "#p3": "5678", "#email": ""})
         # An emergency contact belongs to someone else and is never planned for the applicant's phone.
-        self.assertNotIn("비상 연락처", by_label)
+        self.assertEqual(by_label["비상 연락처"].status, "user_only")
         self.assertEqual(await self.page.locator("#tel").input_value(), "")
         self.assertEqual(by_label["이메일"].status, "failed_validation")
         self.assertEqual(by_label["이메일"].attempts, 2)
@@ -204,9 +213,14 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         report = await self.worker.fill("task", profile)
-        by_path = {item.resume_path: item for item in report.results}
+        by_path = {item.resume_path: item for item in report.results if item.resume_path}
         failures = {path: (item.status, item.reason) for path, item in by_path.items() if item.status != "filled_verified"}
         self.assertEqual(failures, {})
+        # Every detected field has a row; out-of-scope ones say why instead of disappearing.
+        self.assertEqual(len(report.results), report.field_count)
+        others = sorted((item.label, item.status) for item in report.results if not item.resume_path)
+        self.assertIn(("부서 *", "pending_lookup"), others)
+        self.assertIn(("개인정보 수집 및 이용 동의 (필수)", "user_only"), others)
         self.assertEqual(
             set(by_path),
             {
@@ -295,6 +309,230 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BrowserSessionError):
             await self.worker.fill_field("task", self.profile, keys["캠퍼스 메모"], "다른 라벨", "x")
         self.assertFalse(await self.page.locator("#agree").is_checked())
+
+    GRADUATE_PAGE = """
+        <section><h2>대학원</h2>
+        <div role="group"><label>재학기간 *</label>
+          <button type="button" name="educationalBackground.graduateSchools.0.enrollmentPeriod.endDate"
+                  aria-haspopup="grid" data-placeholder="true" data-format="2026. 10" disabled>졸업일</button></div>
+        <div role="group"><label id="st">졸업구분 *</label>
+          <button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="st" data-placeholder-shown=""
+                  name="educationalBackground.graduateSchools.0.completionStatus">선택</button></div>
+        <div role="group"><label>학위구분 *</label>
+          <div role="radiogroup"><button type="button" role="radio" aria-checked="false">석사</button>
+          <button type="button" role="radio" aria-checked="false">박사</button></div></div>
+        <div role="group"><label>전공</label>
+          <input role="combobox" aria-autocomplete="list" name="educationalBackground.graduateSchools.0.majors.0"></div>
+        </section>
+        <div id="portal"></div>
+        <script>
+          const portal = document.getElementById('portal');
+          const list = (labels, pick) => {
+            portal.innerHTML = '';
+            const box = document.createElement('div'); box.setAttribute('role', 'listbox');
+            labels.forEach((text) => { const item = document.createElement('div'); item.setAttribute('role', 'option');
+              item.textContent = text; item.onclick = () => { pick(text); portal.innerHTML = ''; }; box.appendChild(item); });
+            portal.appendChild(box);
+          };
+          const date = document.querySelector('[aria-haspopup=grid]');
+          const status = document.querySelector('[aria-haspopup=listbox]');
+          status.onclick = () => list(['졸업', '재학'], (text) => {
+            status.textContent = text; status.removeAttribute('data-placeholder-shown');
+            date.disabled = text !== '졸업';
+          });
+          date.onclick = () => {
+            portal.innerHTML = '';
+            const input = document.createElement('input'); input.setAttribute('data-part', 'input');
+            input.placeholder = date.dataset.format;
+            input.onkeydown = (event) => { if (event.key === 'Enter') { date.textContent = input.value;
+              date.removeAttribute('data-placeholder'); portal.innerHTML = ''; } };
+            const content = document.createElement('div'); content.setAttribute('role', 'application');
+            content.appendChild(input); portal.appendChild(content);
+          };
+          const major = document.querySelector('input[role=combobox]');
+          major.oninput = () => { if (major.value) setTimeout(() => list(['컴퓨터공학', '컴퓨터공학'], (text) => { major.value = text; }), 200); };
+          major.onkeydown = (event) => { if (event.key === 'Escape') portal.innerHTML = ''; };
+        </script>
+    """
+
+    def graduate_profile(self, status):
+        return ResumeProfile.model_validate(
+            {
+                "education": [
+                    {
+                        "education_level": "graduate_school",
+                        "school_name": "예시대학교 대학원",
+                        "graduation_status": status,
+                        "graduation_date": "2027-02",
+                        "major": "컴퓨터공학",
+                    }
+                ]
+            }
+        )
+
+    async def test_field_enabled_by_a_later_choice_is_filled_in_a_second_pass(self):
+        await self.page.set_content(self.GRADUATE_PAGE)
+        report = await self.worker.fill("task", self.graduate_profile("졸업"))
+        by_path = {item.resume_path: item for item in report.results}
+        self.assertEqual(by_path["education.graduate_school.graduation_date"].status, "filled_verified")
+        self.assertEqual(await self.page.locator("[aria-haspopup=grid]").inner_text(), "2027. 02")
+
+    async def test_field_that_stays_disabled_is_not_counted_as_needing_the_user(self):
+        await self.page.set_content(self.GRADUATE_PAGE)
+        report = await self.worker.fill("task", self.graduate_profile("재학"))
+        by_path = {item.resume_path: item for item in report.results}
+        self.assertEqual(by_path["education.graduate_school.graduation_status"].status, "filled_verified")
+        self.assertEqual(by_path["education.graduate_school.graduation_date"].status, "disabled_on_page")
+        self.assertEqual(report.disabled_count, 1)
+        # Missing degree: no guess, but the page's own options are offered for the review dialog.
+        degree = by_path["education.graduate_school.degree"]
+        self.assertEqual((degree.status, degree.candidates), ("missing_resume_value", ["석사", "박사"]))
+        self.assertEqual(await self.page.locator("[role=radio][aria-checked=true]").count(), 0)
+
+    async def test_identical_duplicate_options_are_accepted_only_when_the_user_picks_one(self):
+        await self.page.set_content(self.GRADUATE_PAGE)
+        profile = self.graduate_profile("졸업")
+        report = await self.worker.fill("task", profile)
+        [major] = [item for item in report.results if item.resume_path == "education.graduate_school.major"]
+        self.assertEqual((major.status, major.candidates), ("needs_human", ["컴퓨터공학", "컴퓨터공학"]))
+        result = await self.worker.fill_field(
+            "task", profile, major.form_field, major.label, "컴퓨터공학", fingerprint=major.fingerprint, chosen=True
+        )
+        self.assertEqual(result.status, "filled_verified")
+        self.assertEqual(await self.page.locator("input[role=combobox]").input_value(), "컴퓨터공학")
+
+    async def test_review_fill_follows_the_fingerprint_when_positions_shift(self):
+        await self.page.set_content(
+            """
+            <form id="f">
+              <label for="a">캠퍼스 메모</label><input id="a" name="memo.first">
+              <label for="b">캠퍼스 메모</label><input id="b" name="memo.second" value="keep">
+            </form>
+            """
+        )
+        inspection = await self.worker._prepare("task", self.profile)
+        first = next(item for item in inspection.inspection.fields if item.name == "memo.first")
+        # The page inserts a field above, so the old positional key now points at another field.
+        await self.page.evaluate(
+            "() => document.getElementById('f').insertAdjacentHTML('afterbegin', '<label for=n>캠퍼스 메모</label><input id=n>')"
+        )
+        result = await self.worker.fill_field(
+            "task", self.profile, first.key, first.label, "서울캠퍼스", fingerprint=first.fingerprint
+        )
+        self.assertEqual(result.status, "filled_verified")
+        values = [await self.page.locator(selector).input_value() for selector in ("#n", "#a", "#b")]
+        self.assertEqual(values, ["", "서울캠퍼스", "keep"])
+
+    async def test_lookup_fills_extra_fields_but_marks_them_for_review(self):
+        await self.page.set_content(
+            """
+            <section><h2>경력사항</h2>
+              <label for="company">회사명</label><input id="company" name="workHistory.workExperiences.0.companyName">
+              <label for="army">병역구분</label>
+              <select id="army"><option value="">선택</option><option value="D">군필</option><option value="N">미필</option></select>
+              <label for="intro">자기소개</label><textarea id="intro"></textarea>
+            </section>
+            """
+        )
+        asked = []
+
+        async def lookup(items):
+            asked.extend(item.field.label for item in items)
+            keys = {item.field.label: item.field.key for item in items}
+            return {keys["회사명"]: "예시주식회사", keys["병역구분"]: "군필"}, {}
+
+        first = await self.worker.fill("task", self.profile)
+        self.assertEqual(await self.page.locator("#company").input_value(), "")
+        self.assertEqual({item.label: item.status for item in first.results}["자기소개"], "user_only")
+        report = await self.worker.fill_lookup("task", self.profile, lookup, second_check(first))
+        # 병역 is now a resume item; with no value in this resume it is still asked about.
+        self.assertEqual(sorted(asked), sorted(["회사명", "병역구분"]))
+        by_label = {item.label: item for item in report.results}
+        self.assertEqual(by_label["회사명"].status, "filled_llm_unconfirmed")
+        self.assertEqual(by_label["병역구분"].status, "filled_llm_unconfirmed")
+        self.assertEqual(report.lookup_filled_count, 2)
+        self.assertEqual(await self.page.locator("#company").input_value(), "예시주식회사")
+        self.assertEqual(await self.page.locator("#army").input_value(), "D")
+        self.assertEqual(await self.page.locator("#intro").input_value(), "")
+
+    async def test_unavailable_lookup_only_adds_a_notice(self):
+        await self.page.set_content('<label for="company">회사명</label><input id="company">')
+
+        async def lookup(items):
+            raise LlmUnavailable("로컬 Ollama에 연결할 수 없습니다.")
+
+        first = await self.worker.fill("task", self.profile)
+        report = await self.worker.fill_lookup("task", self.profile, lookup, second_check(first))
+        self.assertIn("건너뛰었습니다", report.notice)
+        # The waiting row still gets a final state with the reason.
+        [row] = report.results
+        self.assertEqual(row.status, "not_in_resume")
+        self.assertIn("건너뛰었습니다", row.reason)
+        self.assertEqual(await self.page.locator("#company").input_value(), "")
+
+    async def test_second_check_reads_broken_labels_and_converts_options(self):
+        await self.page.set_content(
+            """
+            <section><h2>병역 / 취업우대</h2>
+              <div data-scope="field"><label id="field::a::label">병역사항 *</label>
+                <div role="group"><button type="button" role="combobox" aria-haspopup="listbox"
+                  aria-labelledby="field::missing::label" data-placeholder-shown=""
+                  name="militaryServicePreferentialEmploymentStatus.militaryService.militaryServiceStatus">선택</button></div></div>
+              <div data-scope="field"><label>장애여부</label>
+                <div role="radiogroup" id="toggle-group:x"><button type="button" role="radio" aria-checked="false">비대상</button>
+                <button type="button" role="radio" aria-checked="false">대상</button></div></div>
+            </section>
+            <section><h2>학력</h2>
+              <label for="status">졸업구분</label>
+              <select id="status" name="educationalBackground.universities.0.completionStatus">
+                <option value="">Select</option><option value="G">Finished</option><option value="E">Currently studying</option></select>
+            </section>
+            <div id="portal"></div>
+            <script>
+              const trigger = document.querySelector('[aria-haspopup=listbox]');
+              trigger.onclick = () => {
+                const portal = document.getElementById('portal'); portal.innerHTML = '';
+                const box = document.createElement('div'); box.setAttribute('role', 'listbox');
+                ['비대상', '군필', '미필', '면제', '복무중'].forEach((text) => {
+                  const item = document.createElement('div'); item.setAttribute('role', 'option'); item.textContent = text;
+                  item.onclick = () => { trigger.textContent = text; trigger.removeAttribute('data-placeholder-shown'); portal.innerHTML = ''; };
+                  box.appendChild(item);
+                });
+                portal.appendChild(box);
+              };
+              document.addEventListener('keydown', (event) => { if (event.key === 'Escape') document.getElementById('portal').innerHTML = ''; });
+              document.querySelectorAll('[role=radio]').forEach((radio) => radio.onclick = () => {
+                document.querySelectorAll('[role=radio]').forEach((item) => item.setAttribute('aria-checked', 'false'));
+                radio.setAttribute('aria-checked', 'true');
+              });
+            </script>
+            """
+        )
+        profile = ResumeProfile.model_validate(
+            {"education": [{"education_level": "university", "school_name": "예시대학교", "graduation_status": "재학"}]}
+        )
+        first = await self.worker.fill("task", profile)
+        labels = {item.label: item for item in first.results}
+        self.assertEqual(set(labels), {"병역사항 *", "장애여부", "졸업구분"})
+        self.assertEqual(labels["졸업구분"].status, "needs_human")
+        seen = {}
+
+        async def lookup(items):
+            seen.update({item.field.label: item for item in items})
+            keys = {item.field.label: item.field.key for item in items}
+            return {keys["병역사항 *"]: "비대상", keys["장애여부"]: "비대상", keys["졸업구분"]: "Currently studying"}, {}
+
+        report = await self.worker.fill_lookup("task", profile, lookup, second_check(first))
+        # The closed listbox was opened once to learn its options; the rule value is offered for conversion.
+        self.assertEqual([option.text for option in seen["병역사항 *"].field.options][:2], ["비대상", "군필"])
+        self.assertEqual(seen["졸업구분"].known_value, "재학")
+        statuses = {item.label: (item.status, item.resume_path) for item in report.results}
+        self.assertEqual(statuses["졸업구분"], ("filled_llm_unconfirmed", "education.university.graduation_status"))
+        self.assertEqual(statuses["병역사항 *"][0], "filled_llm_unconfirmed")
+        self.assertEqual(statuses["장애여부"][0], "filled_llm_unconfirmed")
+        self.assertEqual(await self.page.locator("#status").input_value(), "E")
+        self.assertEqual(await self.page.locator("[aria-haspopup=listbox]").inner_text(), "비대상")
+        self.assertEqual(await self.page.locator("[role=radio][aria-checked=true]").inner_text(), "비대상")
 
     async def test_login_page_is_never_inspected_for_resume_filling(self):
         await self.page.set_content(

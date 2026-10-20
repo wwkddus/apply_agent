@@ -26,6 +26,8 @@ def ollama_transport(answer: dict, status: int = 200):
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert body["stream"] is False and body["options"]["temperature"] == 0
+        # Ollama's default 4096-token window would silently truncate a resume-sized prompt.
+        assert body["options"]["num_ctx"] >= 16384
         assert "format" in body
         return httpx.Response(status, json={"message": {"content": json.dumps(answer, ensure_ascii=False)}})
 

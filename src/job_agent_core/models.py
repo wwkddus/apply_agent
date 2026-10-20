@@ -77,7 +77,7 @@ def clean_field(field: str, value: object) -> str:
         return _normalize_year_month(text)
     if field == "phone":
         return _normalize_phone(text)
-    if field == "email" and not _EMAIL_RE.fullmatch(text):
+    if field in ("email", "email_secondary") and not _EMAIL_RE.fullmatch(text):
         raise ValueError("올바른 이메일 형식이 아닙니다")
     if field == "postal_code":
         compact = re.sub(r"\s", "", text)
@@ -122,9 +122,13 @@ class PersonalInfo(BaseModel):
     birth_date: str = ""
     phone: str = ""
     email: str = ""
+    email_secondary: str = ""
     postal_code: str = ""
     address: str = ""
     address_detail: str = ""
+    military_status: str = ""
+    disability_status: str = ""
+    veteran_status: str = ""
 
     @field_validator("name", mode="before")
     @classmethod
