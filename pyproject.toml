@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-agent-core"
+version = "0.3.0"
+description = "한국 채용 지원서의 안전한 자동 입력을 위한 로컬 우선 핵심 모듈"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.120,<1",
+  "pydantic>=2.14,<3",
+  "pypdf>=6.20,<7",
+  "playwright>=1.63,<2",
+  "PySide6>=6.8,<7",
+  "python-multipart>=0.0.20,<1",
+  "httpx>=0.28,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+source = ["job_agent_core"]
+
