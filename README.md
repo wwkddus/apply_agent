@@ -138,7 +138,7 @@ PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/pyt
   - 주소 검색 창(가짜 Kakao 위젯)
   - 숨김 라디오
   - 학력 「추가」 블록
-- 테스트용 이력서 `resume_kr_table_synthetic.pdf`는 가상의 데이터입니다.
+- 테스트용 이력서 `sample_resume.pdf`는 가상의 데이터입니다.
 
 ## Before / After 평가
 

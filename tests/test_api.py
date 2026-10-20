@@ -52,7 +52,7 @@ class ApiTests(unittest.TestCase):
 
     def test_pdf_upload_and_notebook_plan_include_education(self):
         task_id = self.create_task()
-        sample = Path(__file__).parents[1] / "resume_kr_table_synthetic.pdf"
+        sample = Path(__file__).parents[1] / "sample_resume.pdf"
         with sample.open("rb") as handle:
             upload = self.client.post(
                 f"/api/tasks/{task_id}/resume",
@@ -96,7 +96,7 @@ class ApiTests(unittest.TestCase):
             task_id = client.post(
                 "/api/tasks", headers=self.headers, json={"target_url": "https://jobs.example.com/apply"}
             ).json()["task_id"]
-            sample = Path(__file__).parents[1] / "resume_kr_table_synthetic.pdf"
+            sample = Path(__file__).parents[1] / "sample_resume.pdf"
             with sample.open("rb") as handle:
                 upload = client.post(
                     f"/api/tasks/{task_id}/resume",
@@ -110,7 +110,7 @@ class ApiTests(unittest.TestCase):
 
     def test_user_can_correct_a_resume_value_with_validation(self):
         task_id = self.create_task()
-        sample = Path(__file__).parents[1] / "resume_kr_table_synthetic.pdf"
+        sample = Path(__file__).parents[1] / "sample_resume.pdf"
         with sample.open("rb") as handle:
             self.client.post(
                 f"/api/tasks/{task_id}/resume",

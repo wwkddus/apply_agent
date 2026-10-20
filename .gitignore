@@ -12,7 +12,7 @@ __pycache__/
 *.sqlite3
 *.db
 *.pdf
-!resume_kr_table_synthetic.pdf
+!sample_resume.pdf
 *.pages
 screenshots*/
 tmp/
