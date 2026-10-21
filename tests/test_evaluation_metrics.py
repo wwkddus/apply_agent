@@ -1,10 +1,13 @@
+import asyncio
 import sys
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
 from metrics import score_runs  # noqa: E402
-from record_run import field_structure  # noqa: E402
+from record_run import ask, field_structure  # noqa: E402
 
 from job_agent_core.mapping import FormField, FormOption, MappingRecord  # noqa: E402
 
@@ -123,6 +126,30 @@ class StructureSnapshotTests(unittest.TestCase):
         self.assertTrue(row["has_existing_value"])
         self.assertEqual(row["predicted_path"], "education.university.graduation_status")
         self.assertFalse({"value", "current_value", "url"} & set(row))
+
+
+class TerminalPromptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_waiting_for_input_does_not_block_the_event_loop(self):
+        # Browser requests are answered by async route handlers while the prompt is shown.
+        def slow_input(prompt):
+            # Answers only once the loop has kept running while it waited.
+            deadline = time.monotonic() + 1.0
+            while ticks < 5 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return "q" if ticks >= 5 else "blocked"
+
+        ticks = 0
+
+        async def tick():
+            nonlocal ticks
+            for _ in range(5):
+                await asyncio.sleep(0.02)
+                ticks += 1
+
+        with mock.patch("builtins.input", slow_input):
+            answer, _ = await asyncio.gather(ask("> "), tick())
+        self.assertEqual(answer, "q")
+        self.assertEqual(ticks, 5)
 
 
 if __name__ == "__main__":

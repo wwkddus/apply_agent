@@ -99,6 +99,15 @@ def update_label_template(site: str, fields: list[dict[str, object]]) -> Path:
     return path
 
 
+async def ask(prompt: str) -> str:
+    """Wait for terminal input without blocking the event loop.
+
+    Every browser request goes through the session's async route guard; a plain input() would stall
+    the loop and leave the page loading forever while the prompt is shown.
+    """
+    return await asyncio.to_thread(input, prompt)
+
+
 def field_structure(fields, mappings) -> list[dict[str, object]]:
     """Form structure only: whether a value is present is kept, the value itself never is."""
     paths = {item.form_field: item for item in mappings}
@@ -150,7 +159,7 @@ async def record_page(
 
     fill_ms: float | None = None
     results: dict[str, object] = {}
-    if input("  이 페이지를 자동 입력할까요? (최종 제출은 하지 않음) [y/N] ").strip().casefold() == "y":
+    if (await ask("  이 페이지를 자동 입력할까요? (최종 제출은 하지 않음) [y/N] ")).strip().casefold() == "y":
         started = time.perf_counter()
         fill_report = await worker.fill(task_id, profile)
         fill_ms = round((time.perf_counter() - started) * 1000, 1)
@@ -204,7 +213,7 @@ async def run(args: argparse.Namespace) -> int:
             return 1
         print("브라우저에서 로그인/인증 후 지원서 페이지로 이동하세요.")
         while True:
-            command = input("\n[Enter] 현재 페이지 기록 · [a] 다른 도메인 허용 · [q] 종료 > ").strip().casefold()
+            command = (await ask("\n[Enter] 현재 페이지 기록 · [a] 다른 도메인 허용 · [q] 종료 > ")).strip().casefold()
             if command == "q":
                 break
             if command == "a":

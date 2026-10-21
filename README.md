@@ -131,7 +131,7 @@ ollama pull qwen2.5:7b
 PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python -m unittest discover -s tests
 ```
 
-- 현재 **129개 테스트가 모두 통과**합니다.
+- 현재 **130개 테스트가 모두 통과**합니다.
 - 테스트는 실제 LLM이나 실제 채용 사이트에 접속하지 않습니다.
 - 브라우저 통합 테스트는 로컬 Chromium과 합성 HTML 양식으로 다음을 검사합니다.
   - 입력, 재확인, 재시도, 자동 제출 금지
