@@ -60,6 +60,24 @@ class BrowserInspectionReport(BaseModel):
     unapproved_frame_hosts: list[str] = Field(default_factory=list)
 
 
+# 자동 입력 진행 상황(화면의 진행 막대용). 칸 이름과 상태만 담고 입력한 값은 담지 않습니다.
+class FillProgressItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    status: str
+
+
+class FillProgress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    running: bool = False
+    current: str = ""
+    done: int = 0
+    total: int = 0
+    recent: list[FillProgressItem] = Field(default_factory=list)
+
+
 # 칸 하나의 입력 결과. 감지된 모든 칸이 반드시 한 줄씩 남아 '조용히 사라지는 칸'이 없게 합니다.
 # 주요 상태: 입력·재확인 완료 / 기존 값 유지 / 사람 확인 / 사용자 전용 / AI가 넣음(확인 필요).
 class BrowserFillResult(BaseModel):
@@ -293,6 +311,7 @@ class BrowserAutomationWorker:
     ):
         self.sessions = sessions
         self.planner = planner or KoreanPlanningWorker()
+        self.progress: dict[str, FillProgress] = {}
 
     # 브라우저 열기/상태/도메인 승인/닫기는 세션 관리자에게 그대로 맡깁니다.
     async def open(self, task_id: str, raw_url: str, target_hostname: str) -> BrowserStatus:
@@ -305,7 +324,22 @@ class BrowserAutomationWorker:
         return await self.sessions.approve_domain(task_id, hostname)
 
     async def close(self, task_id: str) -> None:
+        self.progress.pop(task_id, None)
         await self.sessions.close(task_id)
+
+    # 진행 중인 자동 입력의 현재 칸·완료 수.
+    def fill_progress(self, task_id: str) -> FillProgress:
+        return self.progress.get(task_id, FillProgress())
+
+    def _progress_step(self, task_id: str, current: str = "", done: list[BrowserFillResult] | None = None) -> None:
+        progress = self.progress.get(task_id)
+        if progress is None:
+            return
+        if current:
+            progress.current = current
+        for item in done or []:
+            progress.done += 1
+            progress.recent = [*progress.recent, FillProgressItem(label=item.label or "라벨 없음", status=item.status)][-5:]
 
     async def close_all(self) -> None:
         await self.sessions.close_all()
@@ -399,11 +433,21 @@ class BrowserAutomationWorker:
         results: list[BrowserFillResult] = []
         address_group = _address_group(prepared.plan.fill_actions, profile)
         deferred = {action.form_field for action in address_group.values()}
-        for action in prepared.plan.fill_actions:
-            if action.form_field not in deferred:
-                results.append(await self._fill_action(action, fields, targets, widget_actions))
-        if address_group:
-            results.extend(await self._fill_address(task_id, profile, address_group, fields, targets, widget_actions))
+        self.progress[task_id] = FillProgress(running=True, total=len(prepared.plan.fill_actions))
+        try:
+            for action in prepared.plan.fill_actions:
+                if action.form_field not in deferred:
+                    self._progress_step(task_id, current=fields[action.form_field].label or "라벨 없음")
+                    results.append(await self._fill_action(action, fields, targets, widget_actions))
+                    self._progress_step(task_id, done=results[-1:])
+            if address_group:
+                self._progress_step(task_id, current="주소")
+                address_results = await self._fill_address(task_id, profile, address_group, fields, targets, widget_actions)
+                results.extend(address_results)
+                self._progress_step(task_id, done=address_results)
+        finally:
+            if task_id in self.progress:
+                self.progress[task_id].running = False
 
         results.extend(_ledger_rows(prepared.inspection.fields, {item.form_field for item in results}))
         try:

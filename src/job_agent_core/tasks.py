@@ -182,6 +182,17 @@ class SqliteTaskStore:
             )
         return updated
 
+    # 채용 URL 도메인을 나중에 정합니다(이력서를 먼저 올리는 화면 흐름). 바꾼 기록이 남도록 갱신 시각도 바꿉니다.
+    def set_target_hostname(self, task_id: str, target_hostname: str) -> TaskRecord:
+        current = self._get_without_expiry(task_id)
+        updated = current.model_copy(update={"target_hostname": target_hostname, "updated_at": utcnow()})
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE tasks SET target_hostname=?, updated_at=? WHERE task_id=?",
+                (updated.target_hostname, updated.updated_at.isoformat(), task_id),
+            )
+        return updated
+
     # DB 연결 종료.
     def close(self) -> None:
         with self._lock:

@@ -29,6 +29,7 @@ AGENTS.md
 VARIANT.md
 # 발표 자료(원고·스크린샷·준비 메모)는 로컬에만 보관
 presentation/
+design/
 
 # 앱 빌드 결과물 (PyInstaller)
 build/

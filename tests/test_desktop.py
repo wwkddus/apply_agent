@@ -9,6 +9,19 @@ from PySide6.QtWidgets import QApplication
 from job_agent_core.desktop import ApplyLocalWindow, DesktopApiClient
 
 
+PREVIEW = {
+    "values": {
+        "person.name.full": "홍길동",
+        "person.name.family": "홍",
+        "person.name.given": "길동",
+        "person.email": "hong@example.com",
+    },
+    "name_confirmation_required": False,
+    "warnings": [],
+    "missing": [],
+}
+
+
 class DesktopWindowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -21,83 +34,100 @@ class DesktopWindowTests(unittest.TestCase):
         self.window.task_id = None
         self.window.close()
 
-    def test_resume_selection_is_kept_across_reset_by_default(self):
-        selected = Path("/tmp/example-resume.pdf")
-        self.window.resume_path = selected
-        self.window.resume_edit.setText(selected.name)
-        self.window._reset()
-        self.assertEqual(self.window.resume_path, selected)
-        self.assertEqual(self.window.resume_edit.text(), selected.name)
+    def prepared(self, **preview):
+        self.window.resume_path = Path("/tmp/example-resume.pdf")
+        self.window._prepared({"task": {"task_id": "task-1"}, "preview": {**PREVIEW, **preview}})
 
-    def test_prepared_state_keeps_existing_name_confirmation_behavior(self):
-        self.window._prepared(
-            {
-                "task": {"task_id": "task-1"},
-                "preview": {
-                    "values": {
-                        "person.name.full": "홍길동",
-                        "person.name.family": "홍",
-                        "person.name.given": "길동",
-                    },
-                    "name_confirmation_required": True,
-                    "warnings": [],
-                    "missing": [],
-                },
-            }
-        )
+    def visible_page(self):
+        return next(name for name, page in self.window.pages.items() if not page.isHidden())
+
+    def test_starts_on_resume_upload_with_remember_on(self):
+        self.assertEqual(self.visible_page(), "upload")
+        self.assertEqual(self.window.stepper.current, 0)
+        self.assertTrue(self.window.keep_resume.isChecked())
+        self.assertEqual(self.window.header_status.text(), "1. 이력서를 올려 주세요")
+
+    def test_resume_check_comes_before_the_url(self):
+        self.prepared()
+        self.assertEqual(self.visible_page(), "resume")
+        self.assertTrue(self.window.resume_next_button.isEnabled())
+        self.window._resume_confirmed()
+        self.assertEqual(self.visible_page(), "url")
+        self.assertEqual(self.window.stepper.current, 1)
+        # 브라우저를 열기 전에는 「자동 입력 시작」이 꺼져 있습니다.
+        self.assertFalse(self.window.fill_button.isEnabled())
+        self.window._browser_updated({"state": "open", "can_inspect": True})
+        self.assertTrue(self.window.fill_button.isEnabled())
+        self.assertTrue(self.window.open_button.isHidden())
+
+    def test_name_confirmation_blocks_next(self):
+        self.prepared(name_confirmation_required=True)
         self.assertFalse(self.window.name_frame.isHidden())
-        self.assertFalse(self.window.open_button.isEnabled())
+        self.assertFalse(self.window.resume_next_button.isEnabled())
         self.assertEqual(self.window.family_edit.text(), "홍")
 
-    def test_fill_report_exposes_next_only_when_backend_marks_it_safe(self):
-        self.window.task_id = "task-1"
-        self.window.preview = {"name_confirmation_required": False}
-        self.window.browser = {"can_inspect": True}
-        self.window.inspection = {"decisions": []}
-        self.window.fill_report = {"safe_next_available": True}
-        self.window._update_buttons()
-        self.assertFalse(self.window.fill_button.isHidden())
-        self.assertEqual(self.window.fill_button.text(), "이 페이지 다시 자동 입력")
+    def test_header_shows_fill_progress(self):
+        self.prepared()
+        self.window.browser = {"state": "open"}
+        self.window.stage = "filling"
+        self.window._progress_updated({"running": True, "current": "이메일", "done": 18, "total": 30, "recent": []})
+        self.assertEqual(self.window.header_status.text(), "3. 자동 입력 중")
+        self.assertEqual(self.window.header_count.text(), "18 / 30")
+        self.assertEqual(self.window.fill_current.text(), "이메일")
+        self.assertEqual(self.window.stepper.current, 2)
+
+    def test_done_counts_and_next_only_when_backend_marks_it_safe(self):
+        self.prepared()
+        self.window.fill_report = {
+            "results": [
+                {"form_field": "a", "status": "filled_verified"},
+                {"form_field": "b", "status": "needs_human"},
+                {"form_field": "c", "status": "not_in_resume"},
+                {"form_field": "d", "status": "user_only"},
+            ],
+            "safe_next_available": False,
+        }
+        self.window._set_stage("done")
+        self.assertEqual(self.window.header_status.text(), "5. 완료 · 확인 필요 1")
+        self.assertEqual(
+            [self.window.filled_value.text(), self.window.review_value.text(),
+             self.window.absent_value.text(), self.window.manual_value.text()],
+            ["1", "1", "1", "1"],
+        )
+        self.assertEqual(self.window.review_button.text(), "확인 필요 1개 보기")
+        self.assertTrue(self.window.next_button.isHidden())
+        self.window.fill_report["safe_next_available"] = True
+        self.window._render()
         self.assertFalse(self.window.next_button.isHidden())
 
-    def test_step_bar_follows_progress(self):
-        def active():
-            return [label.objectName() for label in self.window.step_labels].index("stepActive")
-
-        self.assertEqual(active(), 0)
-        self.window.preview = {"name_confirmation_required": False, "values": {}}
-        self.window._update_buttons()
-        self.assertEqual(active(), 1)
-        self.window.browser = {"can_inspect": True}
-        self.window._update_buttons()
-        self.assertEqual(active(), 2)
-        self.window.fill_report = {"results": [{"status": "needs_human"}], "safe_next_available": False}
-        self.window._update_buttons()
-        self.assertEqual(active(), 3)
-        self.window.fill_report = {"results": [{"status": "filled_verified"}], "safe_next_available": False}
-        self.window._update_buttons()
-        self.assertEqual(active(), 4)
-
-    def test_items_needing_review_come_first_with_a_detail_button(self):
-        self.window._show_results(
-            [
-                {"form_field": "a", "label": "이름", "resume_path": "person.name.full", "status": "filled_verified", "reason": ""},
+    def test_review_lists_items_needing_the_user_with_resume_value_and_page_options(self):
+        self.prepared()
+        self.window.fill_report = {
+            "results": [
+                {"form_field": "a", "label": "이메일", "resume_path": "person.email", "status": "filled_verified", "reason": ""},
                 {"form_field": "b", "label": "학교명", "resume_path": "education.university.school_name",
                  "status": "needs_human", "reason": "후보 중에서 골라 주세요", "candidates": ["A대", "B대"]},
-            ]
-        )
-        self.assertEqual(self.window.table_items[0]["form_field"], "b")
-        self.assertEqual(self.window.table.cellWidget(0, 3).text(), "상세")
-        self.assertIsNone(self.window.table.cellWidget(1, 3))
+            ],
+            "safe_next_available": False,
+        }
+        self.window._show_review(all_rows=False)
+        self.assertEqual(self.visible_page(), "review")
+        self.assertEqual(len(self.window.review_boxes), 1)
+        item, box, options = self.window.review_boxes[0]
+        self.assertEqual(item["form_field"], "b")
+        self.assertEqual([box.itemText(index) for index in range(box.count())], ["A대", "B대"])
+        self.assertEqual(options, ["A대", "B대"])
+        self.window._show_review(all_rows=True)
+        self.assertEqual(self.window.review_title.text(), "입력 결과 2")
 
     def test_lookup_results_are_merged_after_the_rule_results(self):
+        self.prepared()
         self.window.fill_report = {
             "results": [
                 {"form_field": "a", "label": "이름", "resume_path": "person.name.full", "status": "filled_verified", "reason": ""}
             ],
             "safe_next_available": False,
         }
-        self.window.fill_summary = "입력·검증 1개"
         self.window._looked_up(
             {
                 "results": [
@@ -108,23 +138,69 @@ class DesktopWindowTests(unittest.TestCase):
                 "notice": "",
             }
         )
-        self.assertEqual([item["form_field"] for item in self.window.table_items], ["c", "a"])
-        self.assertEqual(self.window.warning_value.text(), "1")
-        self.assertIn("추가로 찾아 입력한 1개", self.window.status_label.text())
+        self.assertEqual([item["form_field"] for item in self.window._results()], ["a", "c"])
+        self.assertEqual(self.window.review_value.text(), "1")
+        self.assertIn("추가로 찾아 입력한 1개", self.window.toast.label.text())
 
-    def test_review_dialog_offers_resume_value_and_page_candidates(self):
-        from job_agent_core.desktop import ReviewDialog
+    def test_new_application_keeps_the_resume_and_replays_edits_in_memory(self):
+        self.prepared()
+        self.window.edits = [("edit", "person.email", "new@example.com")]
+        started = []
+        self.window._prepare = lambda next_stage: started.append((next_stage, list(self.window.edits)))
+        self.window.resume_path = Path(__file__)  # 존재하는 파일이면 됩니다.
+        self.window.task_id = None
+        self.window._new_application()
+        self.assertEqual(started, [("url", [("edit", "person.email", "new@example.com")])])
+        self.window.keep_resume.setChecked(False)
+        self.window._new_application()
+        self.assertIsNone(self.window.resume_path)
+        self.assertEqual(self.window.edits, [])
+        self.assertEqual(self.visible_page(), "upload")
 
-        dialog = ReviewDialog(
-            self.window,
-            {"label": "학교명", "resume_path": "education.university.school_name", "status": "needs_human",
-             "reason": "", "candidates": ["예시대학교 A캠퍼스", "예시대학교 B캠퍼스"]},
-            "예시대학교",
-        )
-        items = [dialog.value_box.itemText(index) for index in range(dialog.value_box.count())]
-        self.assertEqual(items, ["예시대학교", "예시대학교 A캠퍼스", "예시대학교 B캠퍼스"])
-        dialog.value_box.setCurrentIndex(2)
-        self.assertEqual(dialog.value(), "예시대학교 B캠퍼스")
+    def test_menu_bar_face_follows_the_stage(self):
+        self.assertEqual(self.window.tray_state(), "idle")
+        self.prepared()
+        self.window._resume_confirmed()
+        self.assertEqual(self.window.tray_state(), "idle")
+        self.window._browser_updated({"state": "open"})
+        self.assertEqual(self.window.tray_state(), "waiting")
+        self.window.stage = "filling"
+        self.assertEqual(self.window.tray_state(), "applying")
+        self.window.fill_report = {"results": [{"form_field": "a", "status": "needs_human"}], "safe_next_available": False}
+        self.window.stage = "done"
+        self.assertEqual(self.window.tray_state(), "attention")
+        self.window.fill_report["results"][0]["status"] = "filled_verified"
+        self.assertEqual(self.window.tray_state(), "success")
+        self.window.failed_last = True
+        self.assertEqual(self.window.tray_state(), "error")
+
+    def test_every_menu_bar_frame_is_packaged_and_keeps_its_wide_shape(self):
+        from job_agent_core.tray import FRAMES, ICON_DIR, WIN_ICON_DIR, render_icon
+
+        for name in {frame for frames in FRAMES.values() for frame in frames}:
+            self.assertTrue((ICON_DIR / f"{name}.svg").is_file(), name)
+            self.assertTrue((WIN_ICON_DIR / f"{name}.svg").is_file(), name)
+        square = render_icon("idle", mask=False, color="#ffffff", square=True).availableSizes()
+        self.assertTrue(all(size.width() == size.height() for size in square))
+        sizes = render_icon("applying_0", mask=True).availableSizes()
+        self.assertEqual(sorted(size.height() for size in sizes), [18, 36])
+        self.assertTrue(all(size.width() > size.height() for size in sizes))
+
+    def test_header_has_native_style_close_and_minimize_buttons(self):
+        from job_agent_core.desktop import WindowButton
+
+        kinds = [button.kind for button in self.window.header.findChildren(WindowButton)]
+        self.assertIn("close", kinds)
+        self.assertIn("minimize", kinds)
+        self.window.show()
+        self.window.close_button.click()
+        self.assertFalse(self.window.isVisible())
+
+    def test_collapse_hides_everything_but_the_header(self):
+        self.window._toggle_expanded()
+        self.assertTrue(self.window.body.isHidden())
+        self.window._toggle_expanded()
+        self.assertFalse(self.window.body.isHidden())
 
 
 if __name__ == "__main__":

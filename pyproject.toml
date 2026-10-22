@@ -24,6 +24,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+job_agent_core = ["assets/menubar/*.svg", "assets/menubar/win/*.svg"]
+
 [tool.coverage.run]
 source = ["job_agent_core"]
 

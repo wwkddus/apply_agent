@@ -6,6 +6,29 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from job_agent_core.api import ApiSettings, create_app, default_settings
+from job_agent_core.browser_session import BrowserStatus
+from job_agent_core.browser_worker import BrowserFillReport
+from job_agent_core.resume_llm import LlmUnavailable
+
+
+class FakeLookupWorker:
+    """Runs the injected lookup once and records whether it was refused."""
+
+    def __init__(self):
+        self.errors: list[str] = []
+
+    async def fill_lookup(self, task_id, profile, lookup, requests):
+        try:
+            await lookup([])
+        except LlmUnavailable as error:
+            self.errors.append(str(error))
+        return BrowserFillReport(
+            browser=BrowserStatus(state="open"), results=[], filled_count=0, kept_existing_count=0,
+            needs_human_count=0, failed_count=0, safe_next_available=False, submit_control_count=0,
+        )
+
+    async def close_all(self):
+        pass
 
 
 TOKEN = "test-token-with-at-least-24-characters"
@@ -145,6 +168,80 @@ class ApiTests(unittest.TestCase):
             files={"file": ("resume.txt", b"not a pdf", "text/plain")},
         )
         self.assertEqual(response.status_code, 415)
+
+    def test_target_url_can_be_set_after_the_resume(self):
+        created = self.client.post("/api/tasks", headers=self.headers, json={})
+        self.assertEqual(created.status_code, 200, created.text)
+        task_id = created.json()["task_id"]
+        self.assertEqual(created.json()["target_hostname"], "")
+        sample = Path(__file__).parents[1] / "sample_resume.pdf"
+        with sample.open("rb") as handle:
+            upload = self.client.post(
+                f"/api/tasks/{task_id}/resume",
+                headers=self.headers,
+                files={"file": ("resume.pdf", handle, "application/pdf")},
+            )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        opened = self.client.post(f"/api/tasks/{task_id}/browser/open", headers=self.headers)
+        self.assertEqual(opened.status_code, 409)
+        unsafe = self.client.put(
+            f"/api/tasks/{task_id}/target", headers=self.headers, json={"target_url": "http://localhost/apply"}
+        )
+        self.assertEqual(unsafe.status_code, 422)
+        target = self.client.put(
+            f"/api/tasks/{task_id}/target", headers=self.headers, json={"target_url": "https://jobs.example.com/apply"}
+        )
+        self.assertEqual(target.status_code, 200, target.text)
+        self.assertEqual(target.json()["target_hostname"], "jobs.example.com")
+        self.assertNotIn("apply", target.text)  # 원본 URL은 응답·DB에 남지 않고 도메인만 남습니다.
+
+    def test_target_url_is_locked_after_the_task_moves_on(self):
+        task_id = self.create_task()
+        self.client.post(f"/api/tasks/{task_id}/cancel", headers=self.headers)
+        response = self.client.put(
+            f"/api/tasks/{task_id}/target", headers=self.headers, json={"target_url": "https://other.example.com/apply"}
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_skipped_second_check_never_fills_a_late_answer(self):
+        worker = FakeLookupWorker()
+        settings = ApiSettings(
+            database_path=Path(self.temp.name) / "lookup.sqlite3",
+            api_token=TOKEN,
+            allowed_hosts=frozenset({"testserver"}),
+            llm_mode="auto",
+        )
+        app = create_app(settings, browser_worker=worker)
+        with TestClient(app) as client:
+            task_id = client.post(
+                "/api/tasks", headers=self.headers, json={"target_url": "https://jobs.example.com/apply"}
+            ).json()["task_id"]
+            sample = Path(__file__).parents[1] / "sample_resume.pdf"
+            with sample.open("rb") as handle, patch("job_agent_core.api.request_ollama", side_effect=LlmUnavailable("off")):
+                client.post(
+                    f"/api/tasks/{task_id}/resume",
+                    headers=self.headers,
+                    files={"file": ("resume.pdf", handle, "application/pdf")},
+                )
+
+            async def answered(*_args, **_kwargs):
+                return {}, {}
+
+            async def answered_after_skip(*_args, **_kwargs):
+                # 사용자가 기다리는 동안 「건너뛰기」를 누른 경우.
+                app.state.lookup_generation[task_id] += 1
+                return {}, {}
+
+            with patch("job_agent_core.api.lookup_answers", side_effect=answered):
+                response = client.post(f"/api/tasks/{task_id}/browser/lookup", headers=self.headers, json={"rows": []})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(worker.errors, [])
+            with patch("job_agent_core.api.lookup_answers", side_effect=answered_after_skip):
+                client.post(f"/api/tasks/{task_id}/browser/lookup", headers=self.headers, json={"rows": []})
+            self.assertEqual(len(worker.errors), 1)
+            self.assertIn("건너뛰었습니다", worker.errors[0])
+            skipped = client.post(f"/api/tasks/{task_id}/browser/lookup/skip", headers=self.headers)
+            self.assertEqual(skipped.json(), {"skipped": True})
 
     def test_cancel_clears_sensitive_memory(self):
         task_id = self.create_task()

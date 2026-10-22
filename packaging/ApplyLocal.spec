@@ -15,6 +15,8 @@ VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["
 
 # Playwright 드라이버(node + JS 패키지)는 파이썬 import로 잡히지 않아 데이터로 함께 넣습니다.
 datas = collect_data_files("playwright")
+# 메뉴 막대 아이콘(SVG).
+datas += [(str(ROOT / "src" / "job_agent_core" / "assets"), "job_agent_core/assets")]
 hiddenimports = collect_submodules("uvicorn") + collect_submodules("job_agent_core")
 
 a = Analysis(

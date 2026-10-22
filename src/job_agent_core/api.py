@@ -26,7 +26,13 @@ from .browser_session import (
     BrowserSessionNotFound,
     BrowserStatus,
 )
-from .browser_worker import BrowserAutomationWorker, BrowserFillReport, BrowserFillResult, BrowserInspectionReport
+from .browser_worker import (
+    BrowserAutomationWorker,
+    BrowserFillReport,
+    BrowserFillResult,
+    BrowserInspectionReport,
+    FillProgress,
+)
 from .constants import MAX_RESUME_BYTES
 from .korean_scope import enforce_korean_mvp_profile, korean_mvp_values
 from .resume_lookup import lookup_answers
@@ -64,8 +70,14 @@ class ApiSettings(BaseModel):
     )
 
 
-# 작업 생성 요청(지원서 URL).
+# 작업 생성 요청(지원서 URL). 화면에서는 이력서를 먼저 올리므로 URL은 비워 두고 나중에 정할 수 있습니다.
 class CreateTaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_url: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+# 나중에 정하는 지원서 URL.
+class SetTargetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_url: str = Field(min_length=1, max_length=2048)
 
@@ -169,6 +181,9 @@ def create_app(
         worker,
     )
 
+    # 작업별 AI 2차 확인 실행 번호. 건너뛰거나 새로 시작하면 늘어나, 늦게 도착한 이전 결과를 버립니다.
+    lookup_generation: dict[str, int] = {}
+
     # 서버 종료 시 브라우저를 닫고, 메모리의 민감 데이터와 DB 연결을 정리합니다.
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -192,6 +207,7 @@ def create_app(
     app.state.vault = vault
     app.state.worker = worker
     app.state.browser_worker = browser_worker
+    app.state.lookup_generation = lookup_generation
 
     # 모든 요청 검사: 로컬 호스트만, 허용된 출처(origin)만 받습니다(다른 웹사이트에서의 요청 차단).
     @app.middleware("http")
@@ -227,6 +243,10 @@ def create_app(
     # 작업 생성: URL 검사 → DB에는 도메인만, 원본 URL은 메모리 보관함에 저장.
     @app.post("/api/tasks", response_model=TaskRecord, dependencies=[Depends(authorize)])
     async def create_task(payload: CreateTaskRequest) -> TaskRecord:
+        if payload.target_url is None:
+            task = store.create("")
+            vault.put(task.task_id, SensitiveTaskData(raw_url=""))
+            return task
         try:
             target = validate_target_url(payload.target_url)
         except URLPolicyError as error:
@@ -234,6 +254,20 @@ def create_app(
         task = store.create(target.hostname)
         vault.put(task.task_id, SensitiveTaskData(raw_url=target.raw))
         return task
+
+    # 지원서 URL 지정·변경. 같은 URL 검사를 거치며, 브라우저를 연 뒤에는 허용 도메인이 정해졌으므로 바꿀 수 없습니다.
+    @app.put("/api/tasks/{task_id}/target", response_model=TaskRecord, dependencies=[Depends(authorize)])
+    async def set_target(task_id: str, payload: SetTargetRequest) -> TaskRecord:
+        task = get_task(task_id)
+        if task.phase not in {"created", "resume_ready"}:
+            raise HTTPException(status_code=409, detail="브라우저를 연 뒤에는 채용 URL을 바꿀 수 없습니다.")
+        try:
+            target = validate_target_url(payload.target_url)
+        except URLPolicyError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        secret = vault.get(task_id)
+        vault.put(task_id, secret.model_copy(update={"raw_url": target.raw}))
+        return store.set_target_hostname(task_id, target.hostname)
 
     # 작업 상태 조회.
     @app.get("/api/tasks/{task_id}", response_model=TaskRecord, dependencies=[Depends(authorize)])
@@ -414,6 +448,8 @@ def create_app(
         secret = vault.get(task_id)
         if secret.profile is None:
             raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
+        if not secret.raw_url:
+            raise HTTPException(status_code=409, detail="채용 URL을 먼저 입력해 주세요.")
         try:
             result = await browser_worker.open(task_id, secret.raw_url, task.target_hostname)
             store.transition(task_id, "browser_pending")
@@ -485,6 +521,16 @@ def create_app(
         except BrowserSessionError as error:
             raise browser_error(error) from None
 
+    # 자동 입력 진행 상황(칸 이름·완료 수만). 화면이 입력 중에 짧은 간격으로 묻습니다.
+    @app.get(
+        "/api/tasks/{task_id}/browser/progress",
+        response_model=FillProgress,
+        dependencies=[Depends(authorize)],
+    )
+    async def fill_progress(task_id: str) -> FillProgress:
+        get_task(task_id)
+        return browser_worker.fill_progress(task_id)
+
     @app.post(
         "/api/tasks/{task_id}/browser/lookup",
         response_model=BrowserFillReport,
@@ -498,20 +544,32 @@ def create_app(
         if secret.profile is None:
             raise HTTPException(status_code=409, detail="이력서 분석이 아직 완료되지 않았습니다.")
         lookup = None
+        generation = lookup_generation[task_id] = lookup_generation.get(task_id, 0) + 1
         if settings.llm_mode != "off" and secret.resume_text:
             url, model = ollama_settings()
 
             # LLM 조회 함수를 만들어 브라우저 작업자에 주입합니다(LLM 꺼짐이면 None).
             async def lookup(fields):
-                return await lookup_answers(
+                answers = await lookup_answers(
                     secret.resume_text, fields, url=url, model=model, transport=settings.ollama_transport
                 )
+                # 기다리는 동안 사용자가 건너뛰었거나 다음 확인이 시작됐으면 페이지에 아무것도 넣지 않습니다.
+                if lookup_generation.get(task_id) != generation:
+                    raise LlmUnavailable("사용자가 AI 2차 검증을 건너뛰었습니다.")
+                return answers
 
         try:
             requests = [(row.fingerprint, row.status) for row in payload.rows]
             return await browser_worker.fill_lookup(task_id, secret.profile, lookup, requests)
         except BrowserSessionError as error:
             raise browser_error(error) from None
+
+    # AI 2차 확인 건너뛰기. 이미 보낸 LLM 요청은 끝까지 기다리지 않고, 결과가 와도 입력하지 않습니다.
+    @app.post("/api/tasks/{task_id}/browser/lookup/skip", dependencies=[Depends(authorize)])
+    async def skip_lookup(task_id: str) -> dict[str, bool]:
+        get_task(task_id)
+        lookup_generation[task_id] = lookup_generation.get(task_id, 0) + 1
+        return {"skipped": True}
 
     @app.post(
         "/api/tasks/{task_id}/browser/fill-field",

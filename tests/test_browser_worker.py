@@ -125,6 +125,12 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator("#birth").input_value(), "1990-02-03")
         self.assertEqual(await self.page.locator("#skills").input_value(), "Python")
         self.assertEqual(await self.page.evaluate("window.submitted"), 0)
+        progress = self.worker.fill_progress("task")
+        self.assertFalse(progress.running)
+        self.assertEqual(progress.done, progress.total)
+        self.assertGreater(progress.total, 0)
+        # 진행 상황에는 칸 이름과 상태만 있고 입력한 값은 없습니다.
+        self.assertNotIn("hong@example.com", progress.model_dump_json())
 
         await self.worker.advance("task", self.profile)
         self.assertEqual(await self.page.evaluate("window.nexted"), 1)
