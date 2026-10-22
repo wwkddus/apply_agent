@@ -1,5 +1,8 @@
+# [역할] 프로젝트 전체가 공유하는 상수 모음. 이력서 항목 이름(경로), 글자 수 제한, 파일 크기 제한 등을 한곳에서 관리합니다.
+
 from __future__ import annotations
 
+# 이력서에서 읽는 개인정보 항목 목록.
 PERSONAL_FIELDS = (
     "birth_date",
     "phone",
@@ -14,6 +17,7 @@ PERSONAL_FIELDS = (
     "veteran_status",
 )
 
+# 지원하는 학력 단계(대학, 대학원)와 각 학력에서 읽는 항목들.
 EDUCATION_LEVELS = ("university", "graduate_school")
 EDUCATION_FIELDS = (
     "school_name",
@@ -30,6 +34,7 @@ EDUCATION_FIELDS = (
     "region",
 )
 
+# 이름 관련 경로. 전체 이름과 성/이름/중간 이름을 따로 다룹니다.
 NAME_PATHS = {
     "person.name.full",
     "person.name.family",
@@ -44,6 +49,7 @@ NAME_EN_PATHS = {
     "person.name_en.given",
 }
 
+# 항목 이름 → 'person.xxx' 경로. 매핑 결과는 항상 이 경로 형태로 표현합니다.
 PERSONAL_PATHS = {
     "birth_date": "person.birth_date",
     "phone": "person.phone",
@@ -56,12 +62,14 @@ PERSONAL_PATHS = {
     "disability_status": "person.disability_status",
     "veteran_status": "person.veteran_status",
 }
+# 병역·장애·보훈처럼 민감한 항목. 입력하더라도 항상 사람 확인으로 남깁니다.
 SENSITIVE_STATUS_PATHS = {
     "person.military_status",
     "person.disability_status",
     "person.veteran_status",
 }
 
+# 허용되는 모든 이력서 경로. LLM이나 규칙이 이 목록 밖의 경로를 만들면 버립니다.
 RESUME_PATHS = (
     sorted(NAME_PATHS)
     + sorted(NAME_EN_PATHS)
@@ -73,6 +81,7 @@ RESUME_PATHS = (
 DERIVED_PATHS = {"education.highest_level"}
 ALLOWED_RESUME_PATHS = frozenset(RESUME_PATHS) | DERIVED_PATHS
 
+# 날짜 형식으로 다뤄야 하는 경로(생년월일, 입학·졸업일).
 DATE_PATHS = {
     "person.birth_date",
     *{
@@ -82,6 +91,7 @@ DATE_PATHS = {
     },
 }
 
+# 항목별 최대 글자 수. 비정상적으로 긴 값이 들어가는 것을 막습니다.
 FIELD_MAX_LENGTH = {
     "full": 120,
     "family": 60,
@@ -111,6 +121,7 @@ FIELD_MAX_LENGTH = {
     "region": 40,
 }
 
+# 이력서 파일 크기·페이지 제한과, 자동 수락할 최소 신뢰도.
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 MAX_RESUME_PAGES = 20
 AUTO_ACCEPT_CONFIDENCE = 0.8

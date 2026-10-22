@@ -1,3 +1,7 @@
+# 이력서 읽기 1단계(규칙 기반). 
+# PDF에서 텍스트를 뽑고, '항목: 값' 형태를 찾아 ResumeProfile로 만듭니다.
+# LLM 없이 동작하는 기본 경로이며, 애매한 값은 경고로 남겨 사용자가 확인하게 합니다.
+
 from __future__ import annotations
 
 import re
@@ -12,14 +16,17 @@ from .models import EducationRecord, PersonalInfo, PersonName, ResumeProfile, cl
 from .names import infer_latin_name, infer_name_parts
 
 
+# 이력서를 읽을 수 없을 때 사용자에게 보여줄 오류.
 class ResumeParseError(Exception):
     pass
 
 
+# 지원하지 않는 문서 형식(Word/HWP)과, 이메일·휴대폰 번호를 찾는 패턴.
 WORD_SUFFIXES = {".doc", ".docx", ".hwp", ".hwpx", ".odt", ".rtf"}
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?<![\d+])(?:\+82[ \t.-]?)?0?1[016789][ \t.-]?\d{3,4}[ \t.-]?\d{4}(?!\d)")
 
+# 학력 구역 제목. 이 줄 다음에 나오는 학력 항목이 대학/대학원 중 어디 것인지 정합니다.
 SECTION_LABELS = {
     "대학교": "university",
     "대학원": "graduate_school",
@@ -28,6 +35,7 @@ SECTION_LABELS = {
     "graduate school": "graduate_school",
 }
 
+# 이력서 라벨 → 개인정보 항목. 같은 의미의 여러 표기(이름/성명/full name 등)를 한곳에 모았습니다.
 PERSONAL_LABELS = {
     "영문 이름": "name_en",
     "영문이름": "name_en",
@@ -112,6 +120,7 @@ PERSONAL_LABELS = {
     "skills": "skills",
 }
 
+# 이력서 라벨 → 학력 항목.
 EDUCATION_LABELS = {
     "학교명": "school_name",
     "학교": "school_name",
@@ -143,6 +152,8 @@ EDUCATION_LABELS = {
 }
 
 
+# PDF 내용 검사와 텍스트 추출. 파일은 저장하지 않습니다.
+# 크기·암호·페이지 수를 확인하고, 텍스트가 없으면(스캔본) OCR이 필요하다고 알려 줍니다.
 def inspect_resume_bytes(data: bytes) -> dict[str, object]:
     """Inspect PDF bytes without persisting the resume or its filename."""
     size = len(data)
@@ -177,6 +188,7 @@ def inspect_resume_bytes(data: bytes) -> dict[str, object]:
     return {"text": text, "pages": pages, "size_bytes": size}
 
 
+# 파일 경로로 PDF 읽기. Word/HWP·확장자·크기를 먼저 확인한 뒤 inspect_resume_bytes로 넘깁니다.
 def inspect_resume_file(path: str | Path) -> dict[str, object]:
     file_path = Path(path).expanduser()
     if file_path.suffix.lower() in WORD_SUFFIXES:
@@ -195,10 +207,12 @@ def inspect_resume_file(path: str | Path) -> dict[str, object]:
     return inspect_resume_bytes(data)
 
 
+# 라벨 비교용 정규화(공백 정리, 끝의 콜론 제거, 소문자).
 def _normal_label(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().rstrip(":：")).casefold()
 
 
+# 한 줄을 (라벨, 값)으로 나눕니다. '이메일: a@b.com'과 '이메일 a@b.com' 두 형태를 모두 처리.
 def _split_label_value(line: str) -> tuple[str, str] | None:
     match = re.match(r"^\s*([^:：]{1,40})\s*[:：]\s*(.+?)\s*$", line)
     if match:
@@ -210,9 +224,11 @@ def _split_label_value(line: str) -> tuple[str, str] | None:
     return None
 
 
+# 영문으로만 된 2~4단어 줄(라벨 없이 적힌 영문 이름 후보).
 _LATIN_NAME_LINE_RE = re.compile(r"[A-Za-z][A-Za-z'-]*(?:,?\s+[A-Za-z][A-Za-z'-]*){1,3}")
 
 
+# 라벨 없는 영문 이름 찾기: 이력서 앞부분에서 한글 성과 맞는 영문 줄만 영문 이름으로 봅니다.
 def _romanized_name_line(lines: list[str], name: PersonName) -> str:
     """An unlabeled Latin-only line whose first or last word is the romanized Hangul surname."""
     if not name.full:
@@ -224,6 +240,9 @@ def _romanized_name_line(lines: list[str], name: PersonName) -> str:
     return ""
 
 
+# 규칙 기반 이력서 추출(LLM 없음). 흐름:
+# ① 줄 단위로 구역 제목/라벨: 값 인식(값이 다음 줄에 있는 경우 포함) → ② 이메일·전화가 없으면 정규식으로 보충
+# → ③ 이름을 성/이름으로 분리, 영문 이름 판단 → ④ ResumeProfile 생성, 필수 항목 누락은 경고.
 def extract_resume_profile(text: str) -> dict[str, object]:
     """Extract a conservative profile without calling an LLM."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -234,6 +253,7 @@ def extract_resume_profile(text: str) -> dict[str, object]:
     warnings: list[str] = []
     section: str | None = None
 
+    # 값 하나 저장: 형식 검사를 통과해야 하고, 같은 항목에 다른 값이 또 나오면 첫 값만 두고 신뢰도를 낮춥니다.
     def record(scope: str, field: str, value: str, method: str, confidence: float) -> None:
         nonlocal skills
         try:

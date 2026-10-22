@@ -35,17 +35,55 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
 
 
-def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dict[str, object]:
-    """labels: (site, page_index, form_field) -> expected resume path or 'unmapped'."""
+LabelKey = tuple[str, str, int, str]
+
+
+def _label(labels: dict[LabelKey, str], run: dict, field: dict) -> str:
+    # Field keys follow each version's detection order, so a key only means the same field within
+    # one variant: Before (fewer fields detected) and After are labelled separately.
+    return labels.get((run["site"], run["variant"], int(field["page_index"]), field["form_field"]), "")
+
+
+def _should_fill(expected: str, present: set[str]) -> bool:
+    return expected != UNMAPPED and expected in present
+
+
+def page_fillable(runs: list[dict], labels: dict[LabelKey, str]) -> dict[tuple[str, int], int]:
+    """Fields each page should get from the resume, taken from the variant that detected the most.
+
+    Used as the shared denominator, so a field one version never detected counts as not filled
+    instead of disappearing from that version's score.
+    """
+    counts: dict[tuple[str, int], int] = {}
+    for run in runs:
+        present = set(run["resume"]["present_paths"])
+        for page in run["pages"]:
+            key = (run["site"], int(page["page_index"]))
+            count = sum(_should_fill(_label(labels, run, field), present) for field in page["fields"])
+            counts[key] = max(counts.get(key, 0), count)
+    return counts
+
+
+def score_runs(
+    runs: list[dict],
+    labels: dict[LabelKey, str],
+    reference: dict[tuple[str, int], int] | None = None,
+) -> dict[str, object]:
+    """labels: (site, variant, page_index, form_field) -> expected resume path or 'unmapped'.
+
+    reference: page_fillable() over all variants; when given, page_coverage is filled fields over it.
+    """
     rows = []
     unlabeled = 0
     pages = []
+    page_keys = set()
     for run in runs:
         present = set(run["resume"]["present_paths"])
         for page in run["pages"]:
             pages.append(page)
+            page_keys.add((run["site"], int(page["page_index"])))
             for field in page["fields"]:
-                expected = labels.get((run["site"], int(field["page_index"]), field["form_field"]), "")
+                expected = _label(labels, run, field)
                 if not expected:
                     unlabeled += 1
                     continue
@@ -72,12 +110,13 @@ def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dic
         flagged_human += human
         disabled += status == DISABLED
         lookup_filled += status == "filled_llm_unconfirmed"
-        if expected != UNMAPPED and expected in present and status not in {"kept_existing", DISABLED}:
+        if _should_fill(expected, present) and status not in {"kept_existing", DISABLED}:
             fillable += 1
             ok = status == "filled_verified" and predicted == expected
             success += ok
             silent_miss += not ok and not human and status not in EXPLAINED
 
+    page_total = sum(reference.get(key, 0) for key in page_keys) if reference is not None else None
     inspect_ms = [float(page["inspect_ms"]) for page in pages]
     fill_ms = [float(page["fill_ms"]) for page in pages if page.get("fill_ms") is not None]
     return {
@@ -88,6 +127,8 @@ def score_runs(runs: list[dict], labels: dict[tuple[str, int, str], str]) -> dic
         "field_mapping_accuracy": _rate(mapped_correct, len(rows)),
         "fillable_fields": fillable,
         "autofill_success_rate": _rate(success, fillable),
+        "page_fillable_fields": page_total,
+        "page_coverage": _rate(success, page_total) if page_total is not None else None,
         "validation_pass_rate": _rate(filled, attempted),
         "unsafe_fill_count": unsafe,
         "unsafe_fill_rate": _rate(unsafe, filled),

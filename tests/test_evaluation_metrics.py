@@ -1,13 +1,16 @@
 import asyncio
+import csv
 import sys
+import tempfile
 import time
 import unittest
 from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
-from metrics import score_runs  # noqa: E402
-from record_run import ask, field_structure  # noqa: E402
+from metrics import page_fillable, score_runs  # noqa: E402
+import record_run  # noqa: E402
+from record_run import ask, field_structure, update_label_template  # noqa: E402
 
 from job_agent_core.mapping import FormField, FormOption, MappingRecord  # noqa: E402
 
@@ -27,6 +30,7 @@ def field(key, predicted, decision, fill, attempts=0):
 
 RUN = {
     "site": "site-a",
+    "variant": "after",
     "resume": {"present_paths": ["person.name.full", "person.email", "person.phone"]},
     "pages": [
         {
@@ -46,11 +50,11 @@ RUN = {
 }
 
 LABELS = {
-    ("site-a", 1, "f1"): "person.name.full",
-    ("site-a", 1, "f2"): "person.address_detail",
-    ("site-a", 1, "f3"): "unmapped",
-    ("site-a", 1, "f4"): "person.email",
-    ("site-a", 1, "f5"): "person.phone",
+    ("site-a", "after", 1, "f1"): "person.name.full",
+    ("site-a", "after", 1, "f2"): "person.address_detail",
+    ("site-a", "after", 1, "f3"): "unmapped",
+    ("site-a", "after", 1, "f4"): "person.email",
+    ("site-a", "after", 1, "f5"): "person.phone",
 }
 
 
@@ -75,6 +79,7 @@ class EvaluationMetricsTests(unittest.TestCase):
     def test_disabled_fields_are_not_fillable_and_lookup_fills_need_review(self):
         run = {
             "site": "site-b",
+            "variant": "after",
             "resume": {"present_paths": ["education.graduate_school.graduation_date"]},
             "pages": [
                 {
@@ -90,9 +95,9 @@ class EvaluationMetricsTests(unittest.TestCase):
             ],
         }
         labels = {
-            ("site-b", 1, "g1"): "education.graduate_school.graduation_date",
-            ("site-b", 1, "g2"): "unmapped",
-            ("site-b", 1, "g3"): "education.graduate_school.graduation_date",
+            ("site-b", "after", 1, "g1"): "education.graduate_school.graduation_date",
+            ("site-b", "after", 1, "g2"): "unmapped",
+            ("site-b", "after", 1, "g3"): "education.graduate_school.graduation_date",
         }
         result = score_runs([run], labels)
         # g3 was not filled but the ledger said why, so it is not a silent miss.
@@ -104,6 +109,53 @@ class EvaluationMetricsTests(unittest.TestCase):
         result = score_runs([RUN], {})
         self.assertIsNone(result["field_mapping_accuracy"])
         self.assertEqual(result["unlabeled_fields"], 6)
+
+
+class VariantLabelTests(unittest.TestCase):
+    def test_same_key_means_a_different_field_in_each_variant(self):
+        # Before detects fewer fields, so its f1 is the email box while After's f1 is a date picker.
+        present = {"resume": {"present_paths": ["person.email", "person.birth_date"]}}
+        before = {**present, "site": "s", "variant": "before", "pages": [
+            {"page_index": 1, "inspect_ms": 1.0, "fields": [field("f1", "person.email", "planned", "filled_verified", 1)]}
+        ]}
+        after = {**present, "site": "s", "variant": "after", "pages": [
+            {"page_index": 1, "inspect_ms": 1.0, "fields": [
+                field("f1", "person.birth_date", "planned", "filled_verified", 1),
+                field("f2", "person.email", "planned", "filled_verified", 1),
+            ]}
+        ]}
+        labels = {
+            ("s", "before", 1, "f1"): "person.email",
+            ("s", "after", 1, "f1"): "person.birth_date",
+            ("s", "after", 1, "f2"): "person.email",
+        }
+        reference = page_fillable([before, after], labels)
+        self.assertEqual(reference, {("s", 1): 2})
+        scored_before = score_runs([before], labels, reference)
+        self.assertEqual(scored_before["field_mapping_accuracy"], 1.0)
+        # The date field Before never detected still counts against its coverage.
+        self.assertEqual((scored_before["page_fillable_fields"], scored_before["page_coverage"]), (2, 0.5))
+        self.assertEqual(score_runs([after], labels, reference)["page_coverage"], 1.0)
+
+    def test_label_template_keeps_variants_apart_and_written_answers(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(record_run, "EVAL_DIR", Path(temp)):
+            rows = [{"page_index": 1, "form_field": "f1", "label": "이메일", "widget_kind": "text"}]
+            path = update_label_template("s", "before", rows)
+            update_label_template("s", "after", [{**rows[0], "label": "생년월일"}])
+            with path.open(newline="", encoding="utf-8") as handle:
+                written = list(csv.DictReader(handle))
+            written[0]["expected_path"] = "person.email"
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=record_run.LABEL_COLUMNS)
+                writer.writeheader()
+                writer.writerows(written)
+            # Recording Before again keeps the answer for the unchanged field and the After rows.
+            update_label_template("s", "before", rows)
+            with path.open(newline="", encoding="utf-8") as handle:
+                final = {(row["variant"], row["form_field"]): row for row in csv.DictReader(handle)}
+        self.assertEqual(final[("before", "f1")]["expected_path"], "person.email")
+        self.assertEqual(final[("after", "f1")]["label"], "생년월일")
+        self.assertEqual(len(final), 2)
 
 
 class StructureSnapshotTests(unittest.TestCase):

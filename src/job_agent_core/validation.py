@@ -1,3 +1,6 @@
+# [역할] 입력 후 검증 단계. 이름 조합이 맞는지, 브라우저에 실제로 들어간 값이 계획과 같은지 확인합니다.
+# '넣었다'가 아니라 '다시 읽어서 맞다'를 보장하기 위한 모듈입니다.
+
 from __future__ import annotations
 
 from typing import Literal
@@ -9,6 +12,7 @@ from .names import normalized_name
 from .planning import FillAction
 
 
+# 검증에서 발견한 문제 하나(코드 + 사용자에게 보여줄 메시지).
 class ValidationIssue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -24,6 +28,7 @@ class ValidationIssue(BaseModel):
     message: str
 
 
+# 성/이름을 나눠 넣을 때: 사용자가 확인했는지, 합치면 전체 이름과 같은지 검사합니다.
 def validate_name_consistency(profile: ResumeProfile, actions: list[FillAction]) -> list[ValidationIssue]:
     planned = {action.resume_path: action for action in actions if action.status == "planned"}
     name = profile.personal.name
@@ -52,6 +57,7 @@ def validate_name_consistency(profile: ResumeProfile, actions: list[FillAction])
     return issues
 
 
+# 입력 후 브라우저 값을 다시 읽어 계획한 값과 비교합니다(값 없음/칸 없음/불일치/브라우저 검증 실패).
 def validate_readback(
     actions: list[FillAction],
     actual_values: dict[str, str | None],

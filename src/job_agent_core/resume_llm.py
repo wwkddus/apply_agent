@@ -1,3 +1,5 @@
+# [역할] (선택) 로컬 LLM으로 이력서 읽기. 표 형식이 아닌 이력서처럼 규칙으로 못 읽은 항목만 보충합니다.
+# 안전장치: 내 컴퓨터의 Ollama만 사용, LLM 값은 이력서 원문에 실제로 있어야 하고 형식 검사도 통과해야 채택합니다.
 """Optional local-LLM resume extraction for resumes that are not 'label: value' tables.
 
 Privacy and safety rules:
@@ -21,15 +23,18 @@ from .constants import EDUCATION_FIELDS, EDUCATION_LEVELS
 from .models import ResumeProfile
 from .planning import get_resume_value, set_resume_value
 
+# 기본 Ollama 주소와 모델. 컨텍스트 길이를 늘려 이력서+지시문이 잘리지 않게 합니다.
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 # Ollama's default 4096-token window is shorter than resume + instructions; a truncated
 # prompt silently loses the instructions and makes generation slow.
 NUM_CTX = 16384
+# 허용하는 주소는 내 컴퓨터(loopback)뿐. 이력서 원문의 최대 길이도 제한합니다.
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_TEXT_CHARS = 12_000
 
 
+# LLM이 채울 학력 JSON 형식.
 class _Education(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -47,6 +52,7 @@ class _Education(BaseModel):
     region: str = ""
 
 
+# LLM이 채울 이력서 JSON 형식. 이 스키마로 응답 형식을 강제합니다.
 class LlmResumeFields(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -63,6 +69,7 @@ class LlmResumeFields(BaseModel):
     graduate_school: _Education = _Education()
 
 
+# LLM 지시문: 원문 그대로 복사, 추측 금지, 텍스트 안 지시문은 따르지 말 것.
 PROMPT = """다음은 지원자의 이력서 PDF에서 추출한 텍스트입니다. JSON으로 항목을 채우세요.
 규칙:
 - 값은 이력서에 적힌 그대로 복사합니다. 추측하거나 만들지 마세요. 없으면 빈 문자열("")입니다.
@@ -77,26 +84,32 @@ PROMPT = """다음은 지원자의 이력서 PDF에서 추출한 텍스트입니
 >>>"""
 
 
+# LLM을 쓸 수 없을 때의 오류. 이때는 규칙 결과만으로 계속 진행합니다.
 class LlmUnavailable(RuntimeError):
     pass
 
 
+# 환경변수로 Ollama 주소·모델을 바꿀 수 있게 합니다.
 def ollama_settings() -> tuple[str, str]:
     url = os.environ.get("JOB_AGENT_OLLAMA_URL", DEFAULT_OLLAMA_URL).rstrip("/")
     model = os.environ.get("JOB_AGENT_OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
     return url, model
 
 
+# 외부 서버 주소면 거부. 이력서가 내 컴퓨터 밖으로 나가지 않게 하는 핵심 장치입니다.
 def require_loopback(url: str) -> None:
     host = (urlsplit(url).hostname or "").casefold()
     if host not in LOOPBACK_HOSTS:
         raise LlmUnavailable("이력서 분석용 LLM은 이 컴퓨터(127.0.0.1)의 Ollama만 사용할 수 있습니다.")
 
 
+# 비교용 문자열(공백·기호 제거, 소문자).
 def _compact(value: str) -> str:
     return re.sub(r"[\s\-.,·/()]+", "", value or "").casefold()
 
 
+# 근거 확인: LLM이 제안한 값이 이력서 원문에 정말 적혀 있는지 검사합니다(환각 방지).
+# 날짜·전화번호·학점은 표기 차이를 고려해 숫자 기준으로 비교합니다.
 def is_grounded(value: str, text: str, path: str) -> bool:
     """True when the proposed value is actually written in the resume text."""
     if not value:
@@ -119,6 +132,8 @@ def is_grounded(value: str, text: str, path: str) -> bool:
     return _compact(value) in _compact(text)
 
 
+# Ollama에 1회 요청. temperature 0으로 결과를 일정하게 하고, 응답은 스키마로 검증합니다.
+# 연결 실패·모델 없음·형식 오류는 모두 LlmUnavailable로 바꿔 앱이 멈추지 않게 합니다.
 async def chat_json(prompt: str, schema: type[BaseModel], *, url: str, model: str,
                     transport: httpx.AsyncBaseTransport | None = None, timeout: float = 120.0):
     """One structured, deterministic request to the loopback Ollama server, validated by `schema`."""
@@ -146,6 +161,7 @@ async def chat_json(prompt: str, schema: type[BaseModel], *, url: str, model: st
         raise LlmUnavailable("로컬 LLM 응답 형식이 올바르지 않아 규칙 결과만 사용합니다.") from None
 
 
+# 이력서 원문(길이 제한)으로 프롬프트를 만들어 요청.
 async def request_ollama(text: str, *, url: str, model: str, transport: httpx.AsyncBaseTransport | None = None,
                          timeout: float = 120.0) -> LlmResumeFields:
     return await chat_json(
@@ -158,6 +174,7 @@ async def request_ollama(text: str, *, url: str, model: str, transport: httpx.As
     )
 
 
+# LLM 응답을 'person.email' 같은 경로: 값 형태로 바꿉니다(빈 값 제외).
 def proposed_values(fields: LlmResumeFields) -> dict[str, str]:
     values = {
         "person.name.full": fields.name,
@@ -177,6 +194,8 @@ def proposed_values(fields: LlmResumeFields) -> dict[str, str]:
     return {path: " ".join(str(value).split()) for path, value in values.items() if str(value).strip()}
 
 
+# LLM 값 병합 규칙: 규칙으로 이미 읽은 값은 절대 덮어쓰지 않고, 빈 칸만,
+# 원문 근거가 있고 형식 검사를 통과한 값만 채웁니다. 출처는 'llm'으로 표시해 사람 확인 대상이 됩니다.
 def merge_llm_values(
     profile: ResumeProfile,
     proposals: dict[str, str],
@@ -200,6 +219,7 @@ def merge_llm_values(
     return profile, sources, warnings
 
 
+# LLM을 쓸지 결정. 'auto'일 때는 규칙 결과가 부족(기본정보 4개 미만 또는 학력 없음)할 때만 사용.
 def should_use_llm(profile: ResumeProfile, mode: str) -> bool:
     if mode == "off":
         return False

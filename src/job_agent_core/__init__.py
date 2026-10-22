@@ -1,3 +1,4 @@
+# [역할] 패키지 입구. 다른 모듈(데스크톱 앱, API, 테스트)이 자주 쓰는 클래스·함수를 한곳에서 꺼내 쓸 수 있게 모아 둡니다.
 """Testable, provider-neutral core for the job application assistant."""
 
 from .korean_scope import KOREAN_MVP_PATHS, KoreanMvpMapper

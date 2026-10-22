@@ -1,3 +1,9 @@
+# 실제로 쓰는 한국 채용 사이트용 칸 연결(매핑) 규칙. 
+
+# 속성(name/id) → 라벨 규칙 순으로 연결한 뒤,
+# 이름(성+이름 칸), 휴대폰 3칸(010/1234/5678), 
+# 타인 정보(비상연락처 등) 같은 '칸 사이의 구조'를 보고 결과를 보정합니다.
+
 from __future__ import annotations
 
 import re
@@ -8,6 +14,7 @@ from .mapping import FormField, INSTRUCTION_RE, MappingRecord, MappingResult
 from .models import PersonalInfo, ResumeProfile
 
 
+# 지원하는 이력서 경로 전체와, 화면에 보여줄 한국어 항목 이름.
 KOREAN_MVP_PATHS = ALLOWED_RESUME_PATHS
 
 KOREAN_MVP_FIELD_LABELS = {
@@ -32,6 +39,7 @@ KOREAN_MVP_FIELD_LABELS = {
 }
 
 
+# 학력 라벨 규칙(위에서부터 먼저 맞는 것을 사용). '학교'만 있는 넓은 규칙은 맨 끝에 둡니다.
 _SITE_EDU_RULES = (
     ("double_major", r"복수\s*전공|부\s*전공|double\s*major|minor"),
     ("admission_type", r"입학\s*구분|admission\s*type"),
@@ -51,6 +59,7 @@ _SITE_EDU_RULES = (
     ("school_name", r"학교|school|university|college"),
 )
 
+# 개인정보 라벨 규칙. 보조 이메일을 기본 이메일보다 먼저 검사해 기본 이메일이 복사되지 않게 합니다.
 _SITE_PERSONAL_RULES = (
     # Keyword only, so '장애', '장애여부', '장애정보' and 'Disability information' all match.
     ("person.military_status", r"병역|군\s*필|military"),
@@ -68,6 +77,8 @@ _SITE_PERSONAL_RULES = (
     ("person.name.full", r"성명|이름|full\s*name|applicant\s*name|^name$"),
 )
 
+# 학력 수준 판단 패턴: '지역/캠퍼스'는 학력 문맥일 때만 학력 항목으로 보고,
+# '졸업일(graduate date)'을 대학원으로 착각하지 않도록 대학원은 명확한 표현만 인정합니다.
 _GENERIC_EDU_FIELDS = {"region", "campus_type"}
 # 'Graduate date' (졸업일) is not a graduate school; only explicit wordings name the level.
 _GRAD_RE = re.compile(r"대학원|graduate\s*(school|level|program)|postgraduate|master|석사|박사|doctor", re.I)
@@ -75,6 +86,7 @@ _HIGHEST_RE = re.compile(r"최종\s*학력|highest\s*(level\s*of\s*)?education|l
 _UNIV_RE = re.compile(r"대학교|대학|학부|undergraduate|bachelor|학사|university|college", re.I)
 
 
+# 신뢰도 0.8 이상이면 자동 수락, 아니면 사람 확인.
 def _route(record: MappingRecord, field: FormField) -> MappingRecord:
     if record.resume_path == "unmapped":
         status = "unmapped_required" if field.required else "unmapped_optional"
@@ -86,11 +98,13 @@ def _route(record: MappingRecord, field: FormField) -> MappingRecord:
 
 
 # Contact details of someone other than the applicant must never receive the applicant's values.
+# 본인이 아닌 사람(비상연락처·보호자·추천인 등)의 칸. 지원자 정보가 들어가면 안 됩니다.
 _THIRD_PARTY_RE = re.compile(r"비상|긴급|보호자|추천인|가족|부모|배우자|emergency|guardian|referee|reference|parent|spouse", re.I)
 _LABEL_NOISE_RE = re.compile(r"\(?\s*필수\s*\)?|\*|[:：()\[\]]")
 _SCRIPT_QUALIFIER_RE = re.compile(r"영문|한자|한글|국문|english|korean|chinese")
 _ENGLISH_RE = re.compile(r"영문|english")
 _OTHER_SCRIPT_RE = re.compile(r"한자|chinese")
+# 이름 칸 라벨 → 역할(성/이름/전체 이름).
 _NAME_ROLES = {
     "성": "family",
     "姓": "family",
@@ -112,14 +126,17 @@ _NAME_ROLES = {
 }
 
 
+# 속성(name/id)으로 정해진 결과인지 확인. 속성 결과는 구조 보정에서 덮어쓰지 않습니다.
 def _from_attribute(record: MappingRecord) -> bool:
     return record.reason.startswith("attribute:")
 
 
+# 라벨에서 '(필수)', '*', 괄호 등을 지운 비교용 문자열.
 def _bare(value: str | None) -> str:
     return re.sub(r"\s+", "", _LABEL_NOISE_RE.sub("", value or "")).casefold()
 
 
+# 칸 하나가 성/이름/전체 이름/영문 이름/한자 이름 중 무엇인지 판단합니다.
 def _name_role(field: FormField) -> str | None:
     """Classify a name field from its own label, using the placeholder only to refine it."""
     label = _bare(field.label)
@@ -138,11 +155,13 @@ def _name_role(field: FormField) -> str | None:
     return f"en_{role}" if _ENGLISH_RE.search(label) else role
 
 
+# 칸 키('f0-12')에서 순서 번호를 꺼냅니다. 칸이 서로 붙어 있는지 판단할 때 사용.
 def _position(key: str) -> tuple[str, int | None]:
     prefix, _, number = key.rpartition("-")
     return (prefix, int(number)) if number.isdigit() else (key, None)
 
 
+# 두 칸이 같은 폼에서 가까이(limit 이내) 붙어 있는지.
 def _adjacent(first: FormField, second: FormField, index_gap: int, limit: int) -> bool:
     (prefix_a, number_a), (prefix_b, number_b) = _position(first.key), _position(second.key)
     if number_a is None or number_b is None:
@@ -150,12 +169,14 @@ def _adjacent(first: FormField, second: FormField, index_gap: int, limit: int) -
     return prefix_a == prefix_b and abs(number_a - number_b) <= limit
 
 
+# 휴대폰 3칸 입력의 첫 칸(010 선택지가 있거나 3자리 칸)인지.
 def _phone_head(field: FormField) -> bool:
     if field.widget_kind == "select":
         return any(re.sub(r"\D", "", option.value or option.text) == "010" for option in field.options)
     return field.widget_kind == "text" and field.maxlength == 3
 
 
+# 휴대폰 3칸 입력의 둘째·셋째 칸(4자리 칸)인지.
 def _phone_tail(field: FormField, record: MappingRecord, head: FormField) -> bool:
     if field.widget_kind != "text" or field.maxlength != 4:
         return False
@@ -165,9 +186,12 @@ def _phone_tail(field: FormField, record: MappingRecord, head: FormField) -> boo
     return record.resume_path == "unmapped" and (label in {"", _bare(head.label)} or re.fullmatch(r"[-~\d]*", label) is not None)
 
 
+# 한국 사이트용 규칙 매퍼(Before 버전의 노트북 규칙을 옮겨 와 개선). LLM 없이 항상 같은 결과.
 class KoreanMvpMapper:
     """Deterministic mapper ported from G001_장연_AIAgent.ipynb fallback rules."""
 
+    # 흐름: 칸별 1차 연결 → 이름 구조 보정 → 휴대폰 3칸 보정 → 타인 정보 차단 → 신뢰도로 상태 결정.
+    # 마지막으로 같은 이력서 값이 여러 칸에 자동 연결되면 뒤의 것은 사람 확인으로 돌립니다.
     async def map_fields(self, fields: list[FormField]) -> MappingResult:
         records = [self._map_one(field) for field in fields]
         records = self._apply_name_structure(fields, records)
@@ -193,6 +217,7 @@ class KoreanMvpMapper:
             result.append(record)
         return MappingResult(mappings=result)
 
+    # 비상연락처·보호자 영역의 개인정보 칸은 연결을 해제합니다(내 정보가 남의 칸에 들어가지 않게).
     def _apply_third_party_guard(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
         return [
             self._unmapped(field, "structure: 지원자 본인이 아닌 사람(비상연락처·보호자·추천인 등)의 정보")
@@ -203,6 +228,8 @@ class KoreanMvpMapper:
             for field, record in zip(fields, records)
         ]
 
+    # 이름 칸 보정: '성' 칸 옆의 '이름'은 이름(given), 혼자 있는 '이름'은 전체 이름.
+    # 영문 라벨은 영문 이름을 쓰고, 한자 이름은 이력서에 없으므로 입력하지 않습니다.
     def _apply_name_structure(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
         """'성' + '이름' next to each other are family/given; a lone '이름' is the full name."""
         roles = [_name_role(field) for field in fields]
@@ -230,6 +257,7 @@ class KoreanMvpMapper:
                 updated.append(self._mapped(field, f"{base}.full", 0.9, f"structure: 단일 {prefix}이름 필드는 전체 이름"))
         return updated
 
+    # 010 / 1234 / 5678처럼 3칸으로 나뉜 휴대폰 입력을 찾아 각 칸에 1/3, 2/3, 3/3 부분을 지정합니다.
     def _apply_phone_segments(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
         """Recognise the common Korean 010 / 1234 / 5678 three-box phone input."""
         updated = list(records)
@@ -254,6 +282,9 @@ class KoreanMvpMapper:
             index += 1
         return updated
 
+    # 칸 하나 1차 연결. 순서: 지시문 의심 → 제외 / 체크박스 → 제외(동의는 사람이) / 최종 학력
+    # → 속성(name/id) 판단 → 학력 라벨 규칙 → 개인정보 라벨 규칙 → 없으면 미연결.
+    # 라벨이 너무 길면(질문 문장 등) 신뢰도를 낮춰 사람 확인으로 보냅니다.
     def _map_one(self, field: FormField) -> MappingRecord:
         raw = " ".join(
             value
@@ -312,6 +343,7 @@ class KoreanMvpMapper:
             )
         return self._unmapped(field, "fallback: no rule matched")
 
+    # 연결 결과 / 미연결 결과를 만드는 도우미.
     @staticmethod
     def _mapped(field: FormField, path: str, confidence: float, reason: str) -> MappingRecord:
         return MappingRecord(
@@ -333,6 +365,7 @@ class KoreanMvpMapper:
         )
 
 
+# 한국 형식 검사: 우편번호 5자리, 휴대폰 010 형식이 아니면 자동 입력에서 빼고 경고합니다.
 def enforce_korean_mvp_profile(profile: ResumeProfile) -> tuple[ResumeProfile, list[str]]:
     """Validate Korean contact formats while preserving notebook-supported education."""
     warnings: list[str] = []
@@ -350,6 +383,7 @@ def enforce_korean_mvp_profile(profile: ResumeProfile) -> tuple[ResumeProfile, l
     return profile.model_copy(update={"personal": personal}), warnings
 
 
+# 이력서를 '경로: 값' 딕셔너리로 펼칩니다(입력·화면 표시용).
 def korean_mvp_values(profile: ResumeProfile) -> dict[str, str]:
     name = profile.personal.name
     values = {

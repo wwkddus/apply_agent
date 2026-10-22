@@ -1,3 +1,5 @@
+# [역할] 칸의 name/id 속성(개발자가 붙인 이름)에서 의미를 읽는 모듈.
+# 화면 라벨은 배치에 따라 헷갈리기 쉽지만 'edu_school_nm' 같은 속성은 데이터 구조를 그대로 드러내므로 먼저 확인합니다.
 """Read field meaning from developer-facing name/id attributes.
 
 Many application systems name their inputs after their data model, for example
@@ -13,12 +15,14 @@ from dataclasses import dataclass
 UNMAPPED = "unmapped"
 
 
+# 속성에서 얻은 판단 결과: 연결할 이력서 경로와 그 이유.
 @dataclass(frozen=True, slots=True)
 class AttributeHint:
     resume_path: str
     reason: str
 
 
+# 'schoolName', 'edu_school_nm'처럼 붙어 있는 이름을 단어 단위로 쪼갭니다.
 def attribute_tokens(*values: str | None) -> list[str]:
     tokens: list[str] = []
     for value in values:
@@ -27,6 +31,7 @@ def attribute_tokens(*values: str | None) -> list[str]:
     return tokens
 
 
+# 토큰 중 하나라도 주어진 단어와 같은지 / 주어진 접두어로 시작하는지 확인하는 도우미.
 def _has(tokens: list[str], *words: str) -> bool:
     return any(token in words for token in tokens)
 
@@ -36,6 +41,7 @@ def _has_prefix(tokens: list[str], *prefixes: str) -> bool:
 
 
 # Sections whose values are not the applicant's own resume data in scope.
+# 경력·가족·자격증·희망 연봉 등은 이력서 범위 밖이므로, 이런 단어가 보이면 연결하지 않습니다.
 _OUT_OF_SCOPE = (
     "work", "career", "experience", "experiences", "company", "employment", "employer",
     "family", "emergency", "reference", "referee", "recommend", "recommender", "guardian", "parent",
@@ -49,6 +55,7 @@ _EDUCATION_CONTEXT = ("education", "educational", "edu", "academic", "school", "
                       "universities", "college", "graduate", "major", "majors", "gpa")
 
 
+# 속성 단어로 고등학교/대학원/대학 중 어느 학력인지 판단합니다.
 def _education_level(tokens: list[str]) -> str | None:
     joined = "".join(tokens)
     # Common Korean HR abbreviations: eduhg* (high school) and edugd* (graduate school) blocks.
@@ -61,6 +68,8 @@ def _education_level(tokens: list[str]) -> str | None:
     return None
 
 
+# 학력 칸이 학교명·전공·학점·입학일 중 무엇인지 판단합니다.
+# '예/아니요'나 '전공 계열'처럼 이력서에 없는 항목은 일부러 연결하지 않습니다.
 def _education_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
     if _has(tokens, "yn"):
@@ -100,6 +109,7 @@ def _education_field(tokens: list[str]) -> tuple[str | None, str]:
     return None, ""
 
 
+# 개인정보 칸(생년월일, 이메일, 전화, 주소, 영문 이름, 병역 등)인지 판단합니다.
 def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
     if _has(tokens, "country", "nation", "dial") and _has(tokens, "code"):
@@ -141,6 +151,8 @@ def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
     return None, ""
 
 
+# 속성만으로 확실할 때만 결과를 돌려주고, 애매하면 None으로 넘겨 라벨 규칙이 판단하게 합니다.
+# 흐름: 단어 분리 → 범위 밖 영역 제외 → 학력 칸 판단 → 개인정보 칸 판단.
 def infer_from_attributes(name: str | None, element_id: str | None = None) -> AttributeHint | None:
     """Return a decisive hint from a structured attribute path, or None when it says nothing."""
     tokens = attribute_tokens(name)

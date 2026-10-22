@@ -1,3 +1,9 @@
+# 실제 입력 실행 담당(Agent의 손). 
+# 화면 분석 → 계획 → 칸별 입력 → 다시 읽기 확인을 브라우저에서 수행합니다.
+# 원칙: 기존 값은 덮어쓰지 않고, 
+#      확인되지 않은 값은 남기지 않으며, 
+#      제출·저장 버튼은 절대 누르지 않습니다.
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +35,7 @@ from .widgets import WidgetAction, format_like_example, pick_option, plan_widget
 from .worker import KoreanPlanningWorker, WorkerPlan
 
 
+# 화면 분석 결과의 칸별 판단(입력 예정/확인 필요 등) — 입력 전 미리보기용.
 class BrowserFieldDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +47,7 @@ class BrowserFieldDecision(BaseModel):
     reason: str
 
 
+# 화면 분석 보고서: 칸 수, 칸별 판단, 안전한 '다음' 버튼 여부, 제출 버튼 수.
 class BrowserInspectionReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -52,6 +60,8 @@ class BrowserInspectionReport(BaseModel):
     unapproved_frame_hosts: list[str] = Field(default_factory=list)
 
 
+# 칸 하나의 입력 결과. 감지된 모든 칸이 반드시 한 줄씩 남아 '조용히 사라지는 칸'이 없게 합니다.
+# 주요 상태: 입력·재확인 완료 / 기존 값 유지 / 사람 확인 / 사용자 전용 / AI가 넣음(확인 필요).
 class BrowserFillResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -83,6 +93,7 @@ class BrowserFillResult(BaseModel):
     candidates: list[str] = Field(default_factory=list)
 
 
+# 입력 전체 보고서: 결과 목록과 상태별 개수, 사용자 안내 문구.
 class BrowserFillReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -101,6 +112,7 @@ class BrowserFillReport(BaseModel):
     submit_control_count: int
 
 
+# 입력 준비 결과: 화면 분석 + 입력 계획 + 안전한 '다음' 버튼 + 제출 성격 버튼.
 @dataclass(slots=True)
 class PreparedPage:
     inspection: PageInspection
@@ -109,6 +121,7 @@ class PreparedPage:
     submit_controls: list[ControlTarget]
 
 
+# 자동으로 눌러도 되는 '다음' 버튼인지: type=button이고 제출 성격이 전혀 없어야 합니다.
 def _safe_next(control: ControlTarget) -> bool:
     # Only an explicit non-submit button is automated. Links and implicit form buttons stay manual.
     return (
@@ -123,6 +136,7 @@ def _safe_next(control: ControlTarget) -> bool:
     )
 
 
+# 제출 성격의 버튼인지(절대 누르지 않는 버튼).
 def _submit_like(control: ControlTarget) -> bool:
     return is_submit_like_control(
         tag=control.tag,
@@ -132,6 +146,7 @@ def _submit_like(control: ControlTarget) -> bool:
     )
 
 
+# 다시 읽은 값 비교용 정규화(전화는 숫자만, 이메일은 소문자 등).
 def _normalized(value: str, path: str) -> str:
     text = str(value or "").strip()
     if path == "person.phone":
@@ -144,14 +159,17 @@ def _normalized(value: str, path: str) -> str:
     return re.sub(r"\s+", "", text).casefold()
 
 
+# 화면 값과 계획 값이 같은지(형식 차이는 무시).
 def _equivalent(actual: str, expected: str, path: str) -> bool:
     return bool(actual) and _normalized(actual, path) == _normalized(expected, path)
 
 
+# 공백 제거 + 소문자.
 def _plain(value: str) -> str:
     return re.sub(r"\s+", "", value or "").casefold()
 
 
+# 날짜 비교. 화면이 연-월만 보여 줘도 같은 날짜로 인정합니다.
 def _same_date(actual: str, iso_value: str) -> bool:
     """'2020. 03' matches 2020-03-01 when the widget shows only year and month."""
     digits = re.sub(r"\D", "", actual or "")
@@ -159,6 +177,7 @@ def _same_date(actual: str, iso_value: str) -> bool:
     return digits == expected or (len(digits) == 6 and expected.startswith(digits))
 
 
+# 입력 1회 시도 결과: 오류 메시지, 기대 값, 후보 선택지, 비활성 여부.
 @dataclass(slots=True)
 class _Outcome:
     error: str | None = None
@@ -167,11 +186,13 @@ class _Outcome:
     disabled: bool = False
 
 
+# 비활성 칸 안내 문구, 후보 최대 개수, '선택하세요' 같은 자리표시 선택지 패턴.
 DISABLED_REASON = "페이지에서 비활성화된 항목입니다. 다른 선택에 따라 입력할 수 없는 상태일 수 있습니다 (예: 재학 중이면 졸업일 없음)."
 MAX_OPTION_CANDIDATES = 30
 _PLACEHOLDER_OPTION_RE = re.compile(r"(선택|선택하세요|선택해\s*주세요|미선택|choose|select)(\s*\.{0,3})", re.I)
 
 
+# 결과 한 줄을 만드는 도우미(페이지 선택지를 후보로 함께 담음).
 def _row(
     field: FormField, path: str | None, status: str, reason: str, candidates: list[str] | None = None
 ) -> BrowserFillResult:
@@ -187,6 +208,7 @@ def _row(
     )
 
 
+# 규칙이 다루지 않은 칸도 빠짐없이 기록: 사용자 전용 / 기존 값 유지 / AI 2차 확인 대기.
 def _ledger_rows(fields: list[FormField], reported: set[str]) -> list[BrowserFillResult]:
     """A row for every field the rules did not report, with why it was left or what happens next."""
     rows: list[BrowserFillResult] = []
@@ -203,6 +225,7 @@ def _ledger_rows(fields: list[FormField], reported: set[str]) -> list[BrowserFil
     return rows
 
 
+# LLM이 찾은 값을 기존 입력 규칙(날짜·검색 콤보 등)으로 동작으로 바꿉니다.
 def _lookup_action(field: FormField, value: str) -> WidgetAction:
     """Plan a looked-up value with the same adapters; dates reuse the date planning rules."""
     path = f"lookup:{field.name or field.label}"[:200]
@@ -221,6 +244,7 @@ def _lookup_action(field: FormField, value: str) -> WidgetAction:
     return planned.model_copy(update={"resume_path": path})
 
 
+# 페이지에서 읽은 선택지 문구(자리표시 제외). 확인 창에서 사용자에게 후보로 보여 줍니다.
 def _page_options(field: FormField) -> list[str]:
     """Option texts already detected on the page, offered to the user in the review dialog."""
     texts = [" ".join(option.text.split()) for option in field.options]
@@ -230,6 +254,7 @@ def _page_options(field: FormField) -> list[str]:
 
 # Never answered by the second check: 상세주소/우편번호 without a confirmed 기본주소 would be filled
 # alone, and the model cannot tell which word of a romanized name is the surname.
+# AI 2차 확인에서 제외: 주소는 주소 검색으로만, 영문 성/이름은 어순을 알 수 없어 LLM에 맡기지 않습니다.
 _NO_LOOKUP_PATHS = {
     "person.address",
     "person.postal_code",
@@ -239,6 +264,7 @@ _NO_LOOKUP_PATHS = {
 }
 
 
+# 학력 '추가' 버튼 문구 패턴(대학/대학원). 고등학교 블록은 열지 않습니다.
 _GRADUATE_WORD_RE = re.compile(r"대학원|post\s*graduate|graduate\s*school", re.I)
 # (level, add-button wording, name shown to the user). High school blocks are never opened.
 _ADD_SECTION_BUTTONS = (
@@ -247,6 +273,7 @@ _ADD_SECTION_BUTTONS = (
 )
 
 
+# 주소 칸이 읽기 전용이면 주소·우편번호·상세주소를 묶어서 주소 검색 흐름으로 처리합니다.
 def _address_group(actions: list[FillAction], profile: ResumeProfile) -> dict[str, FillAction]:
     """주소/우편번호/상세주소 actions handled together when the page's 주소 field is read-only."""
     by_path = {action.resume_path: action for action in actions}
@@ -257,6 +284,7 @@ def _address_group(actions: list[FillAction], profile: ResumeProfile) -> dict[st
             if path in {"person.address", "person.postal_code", "person.address_detail"}}
 
 
+# 브라우저 입력 작업자. 세션 관리자와 계획 작업자를 주입받습니다(테스트에서 가짜로 교체 가능).
 class BrowserAutomationWorker:
     def __init__(
         self,
@@ -266,6 +294,7 @@ class BrowserAutomationWorker:
         self.sessions = sessions
         self.planner = planner or KoreanPlanningWorker()
 
+    # 브라우저 열기/상태/도메인 승인/닫기는 세션 관리자에게 그대로 맡깁니다.
     async def open(self, task_id: str, raw_url: str, target_hostname: str) -> BrowserStatus:
         return await self.sessions.open(task_id, raw_url, target_hostname)
 
@@ -281,6 +310,8 @@ class BrowserAutomationWorker:
     async def close_all(self) -> None:
         await self.sessions.close_all()
 
+    # 입력 준비: 다른 도메인 차단 확인 → 화면 분석 → 로그인 화면이면 중단(로그인은 사용자가)
+    # → 입력 계획 → 안전한 '다음'/제출 버튼 분류.
     async def _prepare(self, task_id: str, profile: ResumeProfile) -> PreparedPage:
         session = self.sessions.get(task_id)
         if session.blocked_hostname:
@@ -306,6 +337,7 @@ class BrowserAutomationWorker:
             submit_controls=[control for control in inspection.controls if _submit_like(control)],
         )
 
+    # 화면 분석만 하고 칸별 판단을 보고합니다(입력은 하지 않음).
     async def inspect(self, task_id: str, profile: ResumeProfile) -> BrowserInspectionReport:
         prepared = await self._prepare(task_id, profile)
         fields = {item.key: item for item in prepared.inspection.fields}
@@ -353,6 +385,9 @@ class BrowserAutomationWorker:
             unapproved_frame_hosts=sorted(prepared.inspection.unapproved_frame_hosts),
         )
 
+    # 원클릭 자동 입력 전체 흐름:
+    # ① 준비 → ② 학력 '추가' 버튼이 필요하면 열고 다시 준비 → ③ 칸별 입력(주소 묶음은 나중에)
+    # → ④ 주소 검색 → ⑤ 남은 칸 기록 → ⑥ 다시 분석해서, 비활성이던 칸이 풀렸으면 재시도 → ⑦ 보고서.
     async def fill(self, task_id: str, profile: ResumeProfile) -> BrowserFillReport:
         prepared = await self._prepare(task_id, profile)
         opened = await self._expand_sections(prepared, profile)
@@ -401,6 +436,8 @@ class BrowserAutomationWorker:
             submit_control_count=len(refreshed.submit_controls),
         )
 
+    # 이력서에 대학/대학원이 있는데 페이지에 그 칸이 없으면 '추가' 버튼을 누릅니다.
+    # 빈 블록만 추가될 뿐 저장되지 않으며, 저장·제출 버튼은 누르지 않습니다.
     async def _expand_sections(self, prepared: PreparedPage, profile: ResumeProfile) -> list[str]:
         """Click '대학/대학원 학력 추가' when the resume has that level and the page has no field for it yet.
 
@@ -433,6 +470,7 @@ class BrowserAutomationWorker:
             opened.append(name)
         return opened
 
+    # 계획 상태에 따라 결과 결정: 기존 값/값 없음/사람 확인이면 기록만, 입력 예정이면 실제 입력(_execute).
     async def _fill_action(
         self,
         action: FillAction,
@@ -469,6 +507,8 @@ class BrowserAutomationWorker:
             )
         return await self._execute(field, target, widget)
 
+    # 읽기 전용 주소 처리: 우편번호 창으로 검색·선택 → 주소 칸을 다시 읽어 확인 → 우편번호 확인
+    # → 기본주소가 확인된 뒤에만 상세주소 입력. 실패하면 진단(단계만, 값 없음)을 남깁니다.
     async def _fill_address(
         self,
         task_id: str,
@@ -483,6 +523,7 @@ class BrowserAutomationWorker:
         postal_action = group.get("person.postal_code")
         detail_action = group.get("person.address_detail")
 
+        # 주소 묶음용 결과 한 줄 도우미.
         def row(action: FillAction, status: str, reason: str, candidates: list[str] | None = None) -> BrowserFillResult:
             return _row(fields[action.form_field], action.resume_path, status, reason, candidates)
 
@@ -539,6 +580,7 @@ class BrowserAutomationWorker:
             )
         return results
 
+    # 칸 값을 다시 읽습니다. 주소 검색 창은 값을 비동기로 넣으므로 잠시 기다리며 확인합니다.
     @staticmethod
     async def _read_back(target: FieldTarget, timeout: float = 3.0) -> str:
         """The field's value once the page has written it (the widget fills it asynchronously)."""
@@ -554,6 +596,8 @@ class BrowserAutomationWorker:
             await asyncio.sleep(0.2)
         return value
 
+    # AI 2차 확인 흐름: 대기 중인 칸을 다시 찾기 → 사용자 전용·기존 값·주소 등 제외 → 선택지 읽기
+    # → LLM 조회(검증된 값만) → 입력 후 '확인 필요'로 표시. LLM이 꺼져 있거나 실패해도 안내만 하고 계속합니다.
     async def fill_lookup(
         self,
         task_id: str,
@@ -636,6 +680,7 @@ class BrowserAutomationWorker:
             submit_control_count=len(prepared.submit_controls),
         )
 
+    # 닫혀 있는 커스텀 선택 목록을 한 번 열어 선택지만 읽고, 아무것도 고르지 않고 닫습니다.
     async def _read_options(self, field: FormField, target: FieldTarget | None) -> FormField:
         """Open a closed listbox once to learn its options, then close it without choosing."""
         if target is None:
@@ -652,6 +697,7 @@ class BrowserAutomationWorker:
         options = [FormOption(value=text, text=text) for text in dict.fromkeys(texts) if text]
         return field.model_copy(update={"options": options[:MAX_OPTION_CANDIDATES]})
 
+    # LLM 값 입력. 기존 값은 덮어쓰지 않고, 성공해도 상태를 'AI가 넣음(확인 필요)'으로 바꿉니다.
     async def _fill_looked_up(
         self, field: FormField, target: FieldTarget | None, value: str, rule_path: str | None
     ) -> BrowserFillResult:
@@ -677,6 +723,7 @@ class BrowserAutomationWorker:
             )
         return result.model_copy(update={"candidates": candidates})
 
+    # 처음엔 비활성이었던 칸(예: 졸업 구분 선택 후 열리는 졸업일)을 다시 시도합니다.
     async def _retry_disabled(self, results: list[BrowserFillResult], refreshed: PreparedPage) -> list[BrowserFillResult]:
         by_fingerprint = {item.fingerprint: item for item in refreshed.inspection.fields}
         widget_actions = {item.form_field: item for item in refreshed.plan.widget_actions}
@@ -692,6 +739,8 @@ class BrowserAutomationWorker:
             updated.append(retried.model_copy(update={"attempts": result.attempts + retried.attempts}))
         return updated
 
+    # 사용자가 확인 창에서 고른 값으로 칸 하나 입력. 칸은 fingerprint로 다시 찾고,
+    # 라벨이 바뀌었으면 다른 칸일 수 있으므로 중단합니다. 값은 같은 형식 검사를 거칩니다.
     async def fill_field(
         self,
         task_id: str,
@@ -745,6 +794,7 @@ class BrowserAutomationWorker:
             raise BrowserSessionError("DOM에서 필드를 다시 찾지 못했습니다.")
         return await self._execute(field, target, action, overwrite=True)
 
+    # '다음' 페이지 이동. 안전한 '다음' 버튼이 정확히 하나일 때만, 상태를 다시 확인하고 누릅니다.
     async def advance(self, task_id: str, profile: ResumeProfile) -> BrowserStatus:
         prepared = await self._prepare(task_id, profile)
         if len(prepared.safe_next) != 1:
@@ -764,6 +814,10 @@ class BrowserAutomationWorker:
         await asyncio.sleep(0.35)
         return await self.sessions.status(task_id)
 
+    # 칸 하나 실제 입력 + 확인. 
+    # 흐름: 직전에 기존 값 확인(있으면 유지) → 입력 → 다시 읽기 확인.
+    # 실패하면 대체 형식으로 1번만 재시도하고, 그래도 안 되면 남은 잘못된 값을 지웁니다.
+    # 병역·장애·보훈은 성공해도 '확인 필요'로 남깁니다.
     async def _execute(
         self,
         field: FormField,
@@ -838,6 +892,7 @@ class BrowserAutomationWorker:
             attempts=len(candidates),
         )
 
+    # 확인 실패한 텍스트·선택 값을 지워, 검증 안 된 값이 페이지에 남지 않게 합니다.
     async def _clear(self, target: FieldTarget, action: WidgetAction) -> bool:
         """Undo a failed text/select input so an unverified value is never left behind."""
         try:
@@ -852,6 +907,7 @@ class BrowserAutomationWorker:
             pass
         return False
 
+    # 칸에 이미 값이 있는지(라디오 선택됨, 선택 목록 문구 등 위젯별로 확인). 있으면 덮어쓰지 않습니다.
     async def _has_existing(self, target: FieldTarget) -> bool:
         if target.widget_kind == "split_date_select":
             for part in target.part_keys:
@@ -877,6 +933,8 @@ class BrowserAutomationWorker:
         except PlaywrightError:
             return bool((await locator.get_attribute("data-value") or "").strip())
 
+    # 동작 종류별 실제 브라우저 조작 1회: 텍스트 채우기 / 선택 / 라디오(숨겨진 라디오는 label 클릭)
+    # / 버튼형 라디오 / 검색·커스텀 목록에서 하나 고르기 / 커스텀 달력. 보이지 않거나 비활성인 칸은 건드리지 않습니다.
     async def _execute_once(self, target: FieldTarget, action: WidgetAction) -> _Outcome:
         locator = target.frame.locator(target.selector)
         if action.action == "select_parts":
@@ -952,6 +1010,7 @@ class BrowserAutomationWorker:
             return await self._set_custom_date(target, first, action.value)
         return _Outcome("지원하지 않는 입력 동작입니다.")
 
+    # 값으로 라디오 찾기. value가 구분되지 않는 페이지는 순서('#1')로 찾습니다.
     @staticmethod
     async def _radio_matches(locator: Locator, value: str) -> list[Locator]:
         """Radios by value, or by position ('#1') when the page gives them no distinct values."""
@@ -961,6 +1020,7 @@ class BrowserAutomationWorker:
             return [radios[index]] if index < len(radios) else []
         return [item for item in radios if (await item.get_attribute("value")) == value]
 
+    # 비동기로 뜨는 선택지 목록을 개수가 안정될 때까지 기다립니다.
     @staticmethod
     async def _wait_for_options(target: FieldTarget, timeout: float = 3.0) -> list[Locator]:
         """Wait for suggestions that may load asynchronously; stop once the list is stable."""
@@ -976,6 +1036,7 @@ class BrowserAutomationWorker:
             previous = len(options)
         return options
 
+    # 고르지 못했을 때 입력한 검색어를 지우고 목록을 닫습니다.
     @staticmethod
     async def _dismiss(target: FieldTarget, locator: Locator, *, typed: bool) -> None:
         try:
@@ -985,6 +1046,8 @@ class BrowserAutomationWorker:
         except PlaywrightError:
             pass
 
+    # 커스텀 달력 입력: 달력 안 입력칸이 있으면 예시 형식대로 입력,
+    # 없으면 달력 창에서 연·월 선택 후 날짜 칸이 하나일 때만 클릭합니다.
     async def _set_custom_date(self, target: FieldTarget, locator: Locator, iso_value: str) -> _Outcome:
         year, month, day = iso_value.split("-")
         try:
@@ -1038,6 +1101,7 @@ class BrowserAutomationWorker:
         await matches[0].click()
         return _Outcome(expected=iso_value)
 
+    # 숫자가 같은 선택지가 하나일 때만 선택(연도·월).
     @staticmethod
     async def _select_number(locator: Locator, number: int) -> bool:
         options = await locator.locator("option").all()
@@ -1052,6 +1116,7 @@ class BrowserAutomationWorker:
         await locator.select_option(value=(await matches[0].get_attribute("value")) or "")
         return True
 
+    # 입력 후 다시 읽어 확인: 동작 종류별로 화면 값을 읽어 비교하고, 브라우저 자체 검증(checkValidity)도 통과해야 합니다.
     async def _verified(self, target: FieldTarget, action: WidgetAction, expected: str | None) -> bool:
         assert action.value is not None
         if action.action == "select_parts":

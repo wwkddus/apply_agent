@@ -1,3 +1,6 @@
+# [역할] 작업(지원서 1건 처리) 상태 관리. 진행 단계만 SQLite에 저장하고,
+# 이력서 내용·실제 URL 같은 민감한 데이터는 메모리에만 두어 디스크에 남지 않게 합니다.
+
 from __future__ import annotations
 
 import json
@@ -13,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .models import ResumeProfile
 
 
+# 작업이 거치는 단계: 생성 → 이력서 준비 → 브라우저 대기 → 화면 분석 → 계획 완료 → 사용자 확인.
 TaskPhase = Literal[
     "created",
     "resume_ready",
@@ -26,6 +30,7 @@ TaskPhase = Literal[
 ]
 
 
+# 디스크에 저장되는 작업 정보(상태, 도메인, 시간 등). 개인정보는 넣지 않습니다.
 class TaskRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +45,7 @@ class TaskRecord(BaseModel):
     last_error_code: str | None = None
 
 
+# 민감한 작업 데이터(원본 URL, 이력서, 이력서 원문). 메모리에서만 보관합니다.
 class SensitiveTaskData(BaseModel):
     """PII and raw URLs live only in memory and are never serialized by the store."""
 
@@ -50,6 +56,7 @@ class SensitiveTaskData(BaseModel):
     resume_text: str = ""
 
 
+# 작업을 찾지 못했을 때 / 허용되지 않는 단계로 바꾸려 할 때의 오류.
 class TaskNotFound(KeyError):
     pass
 
@@ -58,6 +65,7 @@ class InvalidTaskTransition(ValueError):
     pass
 
 
+# 단계별로 이동할 수 있는 다음 단계 목록. 순서가 꼬이는 것을 막습니다.
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "created": {"resume_ready", "cancelled", "failed", "expired"},
     "resume_ready": {"resume_ready", "browser_pending", "planned", "cancelled", "failed", "expired"},
@@ -71,13 +79,16 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+# 현재 시각(UTC). 테스트에서 시간 비교를 일정하게 하기 위함.
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+# 작업 메타데이터 저장소. 테이블에는 일부러 URL·개인정보 칸이 없습니다.
 class SqliteTaskStore:
     """Durable metadata store. Its schema intentionally has no raw URL or PII columns."""
 
+    # DB 파일을 열고 tasks 테이블이 없으면 만듭니다. 여러 스레드에서 쓰므로 잠금을 둡니다.
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +112,7 @@ class SqliteTaskStore:
                 """
             )
 
+    # 새 작업을 만들고 만료 시간(기본 30분)을 정합니다.
     def create(self, target_hostname: str, *, lifetime: timedelta = timedelta(minutes=30)) -> TaskRecord:
         now = utcnow()
         record = TaskRecord(
@@ -117,6 +129,7 @@ class SqliteTaskStore:
             )
         return record
 
+    # 작업을 읽고, 만료 시간이 지났으면 자동으로 '만료' 상태로 바꿉니다.
     def get(self, task_id: str) -> TaskRecord:
         with self._lock:
             row = self._connection.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
@@ -127,6 +140,7 @@ class SqliteTaskStore:
             record = self.transition(task_id, "expired")
         return record
 
+    # 작업 단계를 바꿉니다. 허용 목록에 없는 이동이면 오류를 냅니다.
     def transition(
         self,
         task_id: str,
@@ -168,10 +182,12 @@ class SqliteTaskStore:
             )
         return updated
 
+    # DB 연결 종료.
     def close(self) -> None:
         with self._lock:
             self._connection.close()
 
+    # 만료 검사 없이 그대로 읽기(transition 내부용).
     def _get_without_expiry(self, task_id: str) -> TaskRecord:
         with self._lock:
             row = self._connection.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
@@ -179,6 +195,7 @@ class SqliteTaskStore:
             raise TaskNotFound(task_id)
         return self._from_row(row)
 
+    # TaskRecord ↔ DB 행 변환 도우미.
     @staticmethod
     def _params(record: TaskRecord) -> tuple[object, ...]:
         return (
@@ -208,6 +225,7 @@ class SqliteTaskStore:
         )
 
 
+# 민감 데이터 메모리 보관함. 작업이 끝나거나 앱이 종료되면 clear로 지웁니다.
 class SensitiveTaskVault:
     def __init__(self):
         self._items: dict[str, SensitiveTaskData] = {}

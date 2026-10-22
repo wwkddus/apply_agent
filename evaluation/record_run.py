@@ -9,7 +9,7 @@ Usage (Before, frozen rule baseline):
 
 Output (no resume values, no URL):
     evaluation/runs/<variant>/<site>-<timestamp>.json
-    evaluation/labels/<site>.csv   (ground-truth template; fill expected_path by hand)
+    evaluation/labels/<site>.csv   (ground-truth template per variant; fill expected_path by hand)
     evaluation/structures/<site>-<timestamp>.json   (only with --dump-structure)
 
 --dump-structure saves the form *structure* of each recorded page (labels, name/id attributes,
@@ -41,7 +41,7 @@ from job_agent_core.security import URLPolicyError, domain_matches
 
 
 EVAL_DIR = Path(__file__).resolve().parent
-LABEL_COLUMNS = ["site", "page_index", "form_field", "label", "widget_kind", "expected_path", "note"]
+LABEL_COLUMNS = ["site", "variant", "page_index", "form_field", "label", "widget_kind", "expected_path", "note"]
 MAX_STRUCTURE_OPTIONS = 30
 
 
@@ -69,27 +69,38 @@ def load_profile(path: str):
     }
 
 
-def update_label_template(site: str, fields: list[dict[str, object]]) -> Path:
+def update_label_template(site: str, variant: str, fields: list[dict[str, object]]) -> Path:
+    """One row per detected field and variant: field keys follow each version's detection order."""
     path = EVAL_DIR / "labels" / f"{site}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, str]] = []
     if path.exists():
         with path.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
-    known = {(row["page_index"], row["form_field"]) for row in rows}
+    # A new recording of the same variant replaces its rows, keeping answers already written for a
+    # field whose key and label are unchanged; the other variant's rows are kept as they are.
+    previous = {
+        (row["page_index"], row["form_field"], row["label"]): (row["expected_path"], row["note"])
+        for row in rows
+        if row.get("variant") == variant
+    }
+    rows = [row for row in rows if row.get("variant") and row["variant"] != variant]
+    known: set[tuple[str, str]] = set()
     for item in fields:
         key = (str(item["page_index"]), str(item["form_field"]))
         if key in known:
             continue
+        known.add(key)
         rows.append(
             {
                 "site": site,
+                "variant": variant,
                 "page_index": key[0],
                 "form_field": key[1],
                 "label": str(item["label"]),
                 "widget_kind": str(item["widget_kind"]),
-                "expected_path": "",
-                "note": "",
+                "expected_path": previous.get((*key, str(item["label"])), ("", ""))[0],
+                "note": previous.get((*key, str(item["label"])), ("", ""))[1],
             }
         )
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -255,7 +266,7 @@ async def run(args: argparse.Namespace) -> int:
         "pages": pages,
     }
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    labels = update_label_template(args.site, [field for page in pages for field in page["fields"]])
+    labels = update_label_template(args.site, args.variant, [field for page in pages for field in page["fields"]])
     print(f"\n기록 저장: {output.relative_to(EVAL_DIR.parent)}")
     print(f"정답 라벨 템플릿: {labels.relative_to(EVAL_DIR.parent)}")
     if structures:

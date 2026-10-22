@@ -1,3 +1,6 @@
+# [역할] 이력서 데이터 모델. 이력서에서 읽은 값을 정해진 구조(이름·개인정보·학력)로 담고,
+# 저장 전에 형식(날짜, 전화번호, 이메일 등)을 검사·정규화합니다. 잘못된 값이 웹 폼까지 가지 않게 막는 첫 관문입니다.
+
 from __future__ import annotations
 
 import re
@@ -8,11 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .constants import EDUCATION_FIELDS, EDUCATION_LEVELS, FIELD_MAX_LENGTH, PERSONAL_FIELDS
 
+# 입력값 검사용 패턴: 제어 문자, HTML/JS 마크업(스크립트 삽입 방지), 이메일 형식.
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _MARKUP_RE = re.compile(r"<\s*/?\s*[a-zA-Z!?]|javascript\s*:|\bon[a-z]+\s*=", re.I)
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
+# 생년월일을 'YYYY-MM-DD'로 통일. '1999.01.02', '1999년 1월 2일' 등 여러 표기를 받아 실제 날짜인지도 확인합니다.
 def _normalize_birth_date(value: str) -> str:
     match = re.fullmatch(r"(\d{4})[-./ ]?(\d{1,2})[-./ ]?(\d{1,2})\.?", value)
     if not match:
@@ -29,6 +34,7 @@ def _normalize_birth_date(value: str) -> str:
     return parsed.isoformat()
 
 
+# 입학·졸업일처럼 연-월만 필요한 값을 'YYYY-MM'으로 통일합니다.
 def _normalize_year_month(value: str) -> str:
     match = re.fullmatch(r"(\d{4})[-./ ]?(\d{1,2})\.?", value)
     if not match:
@@ -41,6 +47,7 @@ def _normalize_year_month(value: str) -> str:
     return f"{year:04d}-{month:02d}"
 
 
+# 전화번호는 허용된 문자만, 숫자 6~15자리인지 확인합니다(형식은 원문 유지).
 def _normalize_phone(value: str) -> str:
     if not re.fullmatch(r"[0-9+\-(). ]+", value):
         raise ValueError("전화번호에 지원하지 않는 문자가 포함되어 있습니다")
@@ -50,12 +57,15 @@ def _normalize_phone(value: str) -> str:
     return value
 
 
+# 학점·만점 같은 숫자 값 검사(예: 3.85, 4.5).
 def _normalize_number(value: str) -> str:
     if not re.fullmatch(r"\d{1,3}(?:\.\d{1,2})?", value) or float(value) > 100:
         raise ValueError("3.85 또는 4.5와 같은 숫자 형식이어야 합니다")
     return value
 
 
+# 모든 이력서 값이 거치는 공통 정리 함수.
+# 흐름: 공백 정리 → 제어문자·마크업 거부 → 길이 제한 → 항목별 형식 정규화.
 def clean_field(field: str, value: object) -> str:
     if value is None:
         value = ""
@@ -89,6 +99,7 @@ def clean_field(field: str, value: object) -> str:
     return text
 
 
+# 이름 정보. 전체 이름과 성/이름을 따로 보관하고, 어떻게 나눴는지(방법·신뢰도)와 사용자 확인 여부를 함께 기록합니다.
 class PersonName(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -101,11 +112,13 @@ class PersonName(BaseModel):
     split_method: str = "not_split"
     confirmed: bool = False
 
+    # 이름 값도 공통 규칙(clean_field)으로 정리.
     @field_validator("full", "family", "given", "middle", mode="before")
     @classmethod
     def _clean_names(cls, value, info):
         return clean_field(info.field_name, value)
 
+    # 이름 분리 신뢰도는 0~1 범위만 허용.
     @field_validator("split_confidence")
     @classmethod
     def _confidence(cls, value: float) -> float:
@@ -114,6 +127,7 @@ class PersonName(BaseModel):
         return value
 
 
+# 개인정보 묶음(이름, 영문 이름, 생년월일, 연락처, 주소, 병역·장애·보훈 등).
 class PersonalInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -130,6 +144,7 @@ class PersonalInfo(BaseModel):
     disability_status: str = ""
     veteran_status: str = ""
 
+    # 예전 형식(이름이 문자열 하나)도 읽을 수 있게 변환합니다.
     @field_validator("name", mode="before")
     @classmethod
     def _legacy_name(cls, value):
@@ -137,12 +152,14 @@ class PersonalInfo(BaseModel):
             return {"full": value}
         return value
 
+    # 모든 개인정보 항목을 공통 규칙으로 정리.
     @field_validator(*PERSONAL_FIELDS, mode="before")
     @classmethod
     def _clean(cls, value, info):
         return clean_field(info.field_name, value)
 
 
+# 학력 1건(대학 또는 대학원). 학교명, 전공, 입학·졸업일, 학점 등을 담습니다.
 class EducationRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -160,11 +177,13 @@ class EducationRecord(BaseModel):
     gpa_scale: str = ""
     region: str = ""
 
+    # 학력 항목도 공통 규칙으로 정리.
     @field_validator(*EDUCATION_FIELDS, mode="before")
     @classmethod
     def _clean(cls, value, info):
         return clean_field(info.field_name, value)
 
+    # 학점이 만점보다 크면 잘못 읽은 값이므로 거부.
     @model_validator(mode="after")
     def _gpa_within_scale(self):
         if self.gpa and self.gpa_scale and float(self.gpa) > float(self.gpa_scale):
@@ -172,6 +191,7 @@ class EducationRecord(BaseModel):
         return self
 
 
+# 이력서 전체. 이후 모든 단계(매핑·입력·검증)는 이 객체만 보고 동작합니다.
 class ResumeProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,11 +199,13 @@ class ResumeProfile(BaseModel):
     education: list[EducationRecord] = Field(default_factory=list)
     skills: str = ""
 
+    # 보유 기술 텍스트 정리.
     @field_validator("skills", mode="before")
     @classmethod
     def _clean_skills(cls, value):
         return clean_field("skills", value)
 
+    # 학력은 단계별 1건만 허용하고, 대학 → 대학원 순서로 정렬합니다.
     @model_validator(mode="after")
     def _one_record_per_level(self):
         levels = [record.education_level for record in self.education]
@@ -193,6 +215,7 @@ class ResumeProfile(BaseModel):
         return self
 
 
+# 중첩된 이력서 구조를 '항목명: 값' 평면 딕셔너리로 펼칩니다(화면 표시·이전 버전 호환용).
 def flatten_resume_profile(profile: ResumeProfile) -> dict[str, str]:
     result = {
         "name": profile.personal.name.full,

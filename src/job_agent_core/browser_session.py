@@ -1,3 +1,6 @@
+# [역할] 브라우저 세션 관리. 작업마다 분리된 Chromium 창을 열고, 승인된 도메인 밖으로 이동하는 것을 막습니다.
+# 로그인·CAPTCHA는 사용자가 이 창에서 직접 하고, Agent는 그 화면을 이어받아 분석·입력만 합니다.
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +18,7 @@ from .address_search import POSTCODE_HOSTS
 from .security import URLPolicyError, domain_matches, sanitize_url, validate_target_url
 
 
+# 브라우저 관련 오류들: 일반 오류 / 세션 없음 / 다른 도메인 이동 승인 필요 / 로그인 미완료.
 class BrowserSessionError(RuntimeError):
     pass
 
@@ -31,6 +35,7 @@ class BrowserLoginNotComplete(BrowserSessionError):
     pass
 
 
+# 화면에 보여줄 브라우저 상태(현재 도메인, 막힌 도메인, 분석 가능 여부 등). 전체 URL 대신 정리된 URL만 담습니다.
 class BrowserStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -43,6 +48,7 @@ class BrowserStatus(BaseModel):
     can_inspect: bool = False
 
 
+# 작업 하나의 브라우저 세션: 창, 전용 프로필 폴더, 허용 도메인 목록, 차단 기록.
 @dataclass(slots=True)
 class BrowserSession:
     task_id: str
@@ -59,6 +65,7 @@ class BrowserSession:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
+# 브라우저 세션을 열고 닫는 관리자. 기본은 보이는 창(사용자가 로그인할 수 있게), 동시 1개, 최대 30분.
 class BrowserSessionManager:
     """Owns visible, task-isolated Chromium profiles on the user's computer."""
 
@@ -79,6 +86,7 @@ class BrowserSessionManager:
         self._manager_lock = asyncio.Lock()
         self._cleanup_orphaned_profiles()
 
+    # 이전에 비정상 종료로 남은 임시 프로필 폴더를 지웁니다(쿠키·로그인 정보가 남지 않게).
     def _cleanup_orphaned_profiles(self) -> None:
         if not self.profile_root.exists():
             return
@@ -86,11 +94,14 @@ class BrowserSessionManager:
             if child.is_dir() and re.fullmatch(r"[0-9a-fA-F-]{36}", child.name):
                 shutil.rmtree(child, ignore_errors=True)
 
+    # Playwright는 처음 필요할 때 한 번만 시작합니다.
     async def _runtime(self) -> Playwright:
         if self._playwright is None:
             self._playwright = await async_playwright().start()
         return self._playwright
 
+    # 채용 페이지 열기. 흐름: URL 검사 → 작업 전용 프로필 생성 → Chromium 실행
+    # → 모든 페이지 이동을 route_guard로 감시 → 페이지 열기.
     async def open(self, task_id: str, raw_url: str, target_hostname: str) -> BrowserStatus:
         async with self._manager_lock:
             if task_id in self._sessions:
@@ -133,6 +144,8 @@ class BrowserSessionManager:
             )
             self._sessions[task_id] = session
 
+            # 페이지 이동 감시: 최상위 이동이 허용 도메인이 아니면 막고 기록합니다.
+            # 팝업 창(예: 주소 검색)은 지원서 페이지를 그쪽으로 옮기지 않고, 승인 후보로만 기록합니다.
             async def route_guard(route: Route) -> None:
                 request = route.request
                 try:
@@ -183,6 +196,7 @@ class BrowserSessionManager:
                     raise BrowserSessionError("채용 페이지를 열지 못했습니다.") from None
             return await self.status(task_id)
 
+    # 세션 가져오기. 시간 초과나 브라우저 비정상 종료면 오류로 알려 줍니다.
     def get(self, task_id: str) -> BrowserSession:
         try:
             session = self._sessions[task_id]
@@ -194,6 +208,7 @@ class BrowserSessionManager:
             raise BrowserSessionError("브라우저가 비정상 종료되었습니다. 작업을 종료하고 다시 시작해 주세요.")
         return session
 
+    # 지원서 페이지 찾기. 원래 페이지가 닫혔으면 대상 도메인의 다른 탭을 이어서 사용합니다.
     async def application_page(self, task_id: str) -> Page:
         session = self.get(task_id)
         pages = [page for page in session.context.pages if not page.is_closed()]
@@ -209,6 +224,7 @@ class BrowserSessionManager:
         session.page = pages[-1]
         return session.page
 
+    # 현재 브라우저 상태를 요약해 돌려줍니다(UI 표시용).
     async def status(self, task_id: str) -> BrowserStatus:
         session = self.get(task_id)
         page = await self.application_page(task_id)
@@ -229,6 +245,7 @@ class BrowserSessionManager:
             can_inspect=bool(url and not session.blocked_hostname and not session.crashed),
         )
 
+    # 사용자가 승인한 도메인 추가. 브라우저가 실제로 요청했던 도메인만 허용하고, 막혔던 이동은 다시 진행합니다.
     async def approve_domain(self, task_id: str, hostname: str) -> BrowserStatus:
         session = self.get(task_id)
         normalized = str(hostname or "").rstrip(".").casefold()
@@ -250,6 +267,7 @@ class BrowserSessionManager:
                     raise BrowserSessionError("허용한 페이지로 이동하지 못했습니다.") from None
         return await self.status(task_id)
 
+    # 세션 종료: 창을 닫고 전용 프로필 폴더(쿠키 포함)를 삭제합니다.
     async def close(self, task_id: str) -> None:
         async with self._manager_lock:
             session = self._sessions.pop(task_id, None)
@@ -261,6 +279,7 @@ class BrowserSessionManager:
                 pass
             shutil.rmtree(session.profile_dir, ignore_errors=True)
 
+    # 앱 종료 시 모든 세션과 Playwright를 정리합니다.
     async def close_all(self) -> None:
         for task_id in list(self._sessions):
             await self.close(task_id)

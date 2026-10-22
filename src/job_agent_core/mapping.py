@@ -1,3 +1,6 @@
+# [역할] 칸 연결(매핑) 기본 모듈. 웹 폼의 칸 정보(FormField)와 연결 결과(MappingRecord)를 정의하고,
+# 라벨 문구로 '이 칸 = 이력서의 어떤 항목'을 정하는 기본 규칙 매퍼를 제공합니다.
+
 from __future__ import annotations
 
 import re
@@ -8,12 +11,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .constants import ALLOWED_RESUME_PATHS, AUTO_ACCEPT_CONFIDENCE
 
 
+# 선택형 칸의 선택지 하나(값 + 화면 문구).
 class FormOption(BaseModel):
     model_config = ConfigDict(extra="forbid")
     value: str
     text: str
 
 
+# 화면에서 찾은 입력 칸 하나. 라벨, 종류, 필수 여부, 기존 값 여부, 선택지 등을 담습니다.
+# 실제 값은 담지 않고 '값이 있는지'만 기록합니다.
 class FormField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -39,6 +45,7 @@ class FormField(BaseModel):
     fingerprint: str = ""
 
 
+# 칸 ↔ 이력서 경로 연결 결과. 신뢰도와 이유를 함께 남기고, status로 자동 수락/사람 확인을 구분합니다.
 class MappingRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -55,6 +62,7 @@ class MappingRecord(BaseModel):
         "unmapped_optional",
     ] = "needs_human_review"
 
+    # 신뢰도는 0~1만 허용.
     @field_validator("confidence")
     @classmethod
     def _confidence(cls, value: float) -> float:
@@ -62,6 +70,7 @@ class MappingRecord(BaseModel):
             raise ValueError("신뢰도는 0과 1 사이여야 합니다")
         return value
 
+    # 허용된 이력서 경로만 받습니다(LLM이 엉뚱한 경로를 만들어도 여기서 차단).
     @field_validator("resume_path")
     @classmethod
     def _resume_path(cls, value: str) -> str:
@@ -70,17 +79,20 @@ class MappingRecord(BaseModel):
         return value
 
 
+# 여러 칸의 연결 결과 묶음.
 class MappingResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mappings: list[MappingRecord]
 
 
+# 매퍼 공통 규격. 규칙 매퍼든 LLM 매퍼든 map_fields만 있으면 바꿔 끼울 수 있습니다(의존성 주입).
 class MappingProvider(Protocol):
     """Provider-neutral contract for OpenAI, local or hosted open-weight models."""
 
     async def map_fields(self, fields: list[FormField]) -> MappingResult: ...
 
 
+# 웹페이지에 숨은 '이전 지시 무시' 같은 문구(프롬프트 인젝션)를 찾는 패턴.
 INSTRUCTION_RE = re.compile(
     r"ignore\s+(all\s+)?previous|system\s+prompt|developer\s+message|submit\s+(now|immediately)|"
     r"이전\s*지시|무시하고|[立即马上].{0,6}[提交提出]",
@@ -88,6 +100,7 @@ INSTRUCTION_RE = re.compile(
 )
 
 
+# 라벨·placeholder·name·id를 합친 판단용 문자열.
 def _text(field: FormField) -> str:
     return " ".join(
         part
@@ -96,10 +109,12 @@ def _text(field: FormField) -> str:
     ).strip()
 
 
+# 공백·밑줄·하이픈을 지우고 소문자로 통일(표기 차이 무시).
 def _compact(value: str) -> str:
     return re.sub(r"[\s_\-/]+", "", value or "").casefold()
 
 
+# 주변 문구로 대학원/대학 구분. 단서가 없으면 대학으로 보되 신뢰도를 낮춰 사람 확인으로 보냅니다.
 def _education_level(field: FormField) -> tuple[str, float]:
     context = f"{field.section} {field.label} {field.name or ''} {field.element_id or ''}"
     if re.search(r"대학원|graduate|master|석사|박사", context, re.I):
@@ -109,6 +124,7 @@ def _education_level(field: FormField) -> tuple[str, float]:
     return "university", 0.6
 
 
+# 신뢰도에 따라 상태 결정: 기준 이상이면 자동 수락, 아니면 사람 확인.
 def _route(record: MappingRecord, field: FormField) -> MappingRecord:
     if record.resume_path == "unmapped":
         status = "unmapped_required" if field.required else "unmapped_optional"
@@ -119,9 +135,11 @@ def _route(record: MappingRecord, field: FormField) -> MappingRecord:
     return record.model_copy(update={"status": status})
 
 
+# 규칙 기반 매퍼(Before 버전의 기준). LLM 없이 항상 같은 결과를 냅니다.
 class RuleBasedMapper:
     """Deterministic multilingual mapper used before any optional LLM."""
 
+    # 모든 칸을 연결한 뒤, 같은 이력서 값이 두 칸에 자동 연결되면 두 번째는 사람 확인으로 돌립니다.
     async def map_fields(self, fields: list[FormField]) -> MappingResult:
         records = [_route(self._map_one(field), field) for field in fields]
         seen: dict[str, MappingRecord] = {}
@@ -139,6 +157,7 @@ class RuleBasedMapper:
             routed.append(record)
         return MappingResult(mappings=routed)
 
+    # 칸 하나 연결. 순서: 지시문 의심 → 무시 / 학력 규칙 / 이름 규칙 / 개인정보 규칙 / 없으면 미연결.
     def _map_one(self, field: FormField) -> MappingRecord:
         raw = _text(field)
         compact = _compact(raw)
@@ -233,6 +252,7 @@ class RuleBasedMapper:
         )
 
 
+# 외부 모델에 보낼 수 있는 안전한 요약. 이력서 값·URL·선택자는 넣지 않고 길이도 자릅니다.
 def build_mapping_payload(fields: list[FormField]) -> dict[str, object]:
     """Safe payload for any model backend: no resume values, URL or selectors."""
     return {

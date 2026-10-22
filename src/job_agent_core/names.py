@@ -1,3 +1,6 @@
+# [역할] 이름 처리 모듈. 전체 이름을 성/이름으로 나누고, 영문 이름의 어순(성이 앞인지 뒤인지)을 판단합니다.
+# 이름은 틀리면 치명적이라, 확실하지 않으면 '확인 안 됨'으로 남겨 사용자에게 한 번 묻습니다.
+
 from __future__ import annotations
 
 import re
@@ -6,6 +9,7 @@ from .models import PersonName, ResumeProfile
 
 # Common Korean compound family names. Recognising one is useful, but still
 # requires confirmation because some three-character names remain ambiguous.
+# 두 글자 성(남궁, 제갈 등). '남궁민'을 '남 + 궁민'으로 잘못 나누지 않기 위함.
 KOREAN_COMPOUND_FAMILY_NAMES = {
     "남궁",
     "독고",
@@ -18,10 +22,13 @@ KOREAN_COMPOUND_FAMILY_NAMES = {
 }
 
 
+# 공백과 가운뎃점을 지운 비교용 이름.
 def _compact(value: str) -> str:
     return re.sub(r"[\s·・]", "", value or "")
 
 
+# 전체 이름을 성/이름으로 나누는 추정. 결과는 항상 '미확인' 상태입니다.
+# 순서: 한글 이름(두 글자 성 → 한 글자 성) → 쉼표 표기('Hong, Gildong') → 띄어쓰기 영문 이름(신뢰도 낮음).
 def infer_name_parts(full_name: str) -> PersonName:
     """Infer components conservatively; uncertain splits are never confirmed."""
     full = " ".join((full_name or "").split())
@@ -80,6 +87,7 @@ def infer_name_parts(full_name: str) -> PersonName:
     return PersonName(full=full)
 
 
+# 사용자가 확인한 성/이름으로 바꾼 이력서 복사본을 돌려줍니다(신뢰도 1.0, 확인 완료).
 def confirm_name_parts(profile: ResumeProfile, *, family: str, given: str, middle: str = "") -> ResumeProfile:
     """Return a copy with user-confirmed name components."""
     name = PersonName.model_validate(
@@ -97,10 +105,13 @@ def confirm_name_parts(profile: ResumeProfile, *, family: str, given: str, middl
     return profile.model_copy(update={"personal": personal})
 
 
+# 비교용 이름 정규화(공백·하이픈·대소문자 무시).
 def normalized_name(value: str) -> str:
     return re.sub(r"[\s\-'·・]", "", (value or "")).casefold()
 
 
+# 사용자에게 묻지 않고 성/이름을 바로 넣어도 되는지 판단.
+# 합쳤을 때 전체 이름과 같아야 하고, 사용자 확인 또는 신뢰할 수 있는 규칙(2~3글자 한글 이름 등)일 때만 True.
 def name_components_usable(name: PersonName) -> bool:
     """Family/given may be filled without asking only when the split is verifiable."""
     if not (name.family and name.given):
@@ -124,6 +135,7 @@ def name_components_usable(name: PersonName) -> bool:
 # Common romanizations of Korean family names, including Chinese pinyin/Cantonese forms for
 # Chinese names written in Hangul (e.g. 장 -> Zhang/Cheung). Used only to decide which Latin
 # token is the family name; anything not covered falls back to Revised Romanization.
+# 한글 성 → 흔히 쓰는 영문 표기(Kim, Lee, Park…). 영문 이름에서 어느 쪽이 성인지 찾을 때 씁니다.
 SURNAME_ROMANIZATIONS: dict[str, set[str]] = {
     "김": {"kim", "gim", "jin", "kam"},
     "이": {"lee", "yi", "rhee", "i", "rhie", "li", "ri", "lei"},
@@ -216,11 +228,13 @@ SURNAME_ROMANIZATIONS: dict[str, set[str]] = {
     "동방": {"dongbang", "dongfang"},
 }
 
+# 국어의 로마자 표기법(초성·중성·종성) 표. 위 목록에 없는 성을 영문으로 바꿀 때 사용.
 _RR_INITIALS = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"]
 _RR_VOWELS = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i"]
 _RR_FINALS = ["", "k", "k", "k", "n", "n", "n", "t", "l", "k", "m", "l", "l", "l", "p", "l", "m", "p", "p", "t", "t", "ng", "t", "t", "k", "t", "p", "t"]
 
 
+# 한글을 로마자 표기법으로 변환(예: 홍 → hong).
 def revised_romanization(hangul: str) -> str:
     out = []
     for char in hangul:
@@ -231,6 +245,7 @@ def revised_romanization(hangul: str) -> str:
     return "".join(out)
 
 
+# k/g, p/b, r/l처럼 비슷한 철자 차이를 무시하고 느슨하게 비교하기 위한 변환.
 def _loose(value: str) -> str:
     """Collapse spelling variants (k/g, p/b, t/d, r/l, ee/i, oo/u, eo/u) for a lenient match."""
     text = re.sub(r"[^a-z]", "", value.casefold())
@@ -240,6 +255,7 @@ def _loose(value: str) -> str:
     return text
 
 
+# 영문 단어가 한글 성의 영문 표기와 같은지 확인.
 def _surname_matches(token: str, surname: str) -> bool:
     lowered = re.sub(r"[^a-z]", "", token.casefold())
     if not lowered or not surname:
@@ -250,6 +266,8 @@ def _surname_matches(token: str, surname: str) -> bool:
     return bool(romanized) and _loose(lowered) == _loose(romanized)
 
 
+# 영문 이름 나누기. 한글 성과 맞는 단어가 앞/뒤 중 한쪽에만 있으면 그쪽을 성으로 봅니다.
+# 그다음 단서는 대문자로만 쓴 단어('HONG Gildong'). 둘 다 없으면 나누지 않고 사용자에게 맡깁니다.
 def infer_latin_name(latin: str, native: PersonName) -> PersonName:
     """Split a romanized name using the native (Hangul) family name to decide the order.
 

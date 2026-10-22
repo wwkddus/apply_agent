@@ -1,3 +1,6 @@
+# [역할] 브라우저를 건드리지 않고 '무엇을 어디에 넣을지' 계획만 세우는 작업자입니다.
+# 매핑 → 입력 계획 → 위젯 동작 순서로 계산만 하므로 테스트하기 쉽습니다.
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +14,7 @@ from .planning import FillAction, build_fill_plan
 from .widgets import WidgetAction, plan_widget_action
 
 
+# 계획 결과 묶음: 칸 연결 결과, 입력 계획, 위젯 동작, 연결 못 한 칸 수.
 class WorkerPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -20,12 +24,14 @@ class WorkerPlan(BaseModel):
     skipped_field_count: int = 0
 
 
+# 실제 입력 전에 계획만 세우는 작업자. 매퍼를 주입받을 수 있어 테스트에서 가짜로 바꿔 끼웁니다.
 class KoreanPlanningWorker:
     """Side-effect-free worker boundary; Playwright execution is added in Phase 5."""
 
     def __init__(self, mapper: KoreanMvpMapper | None = None):
         self.mapper = mapper or KoreanMvpMapper()
 
+    # 흐름: ① 칸을 이력서 항목에 연결 → ② 입력할 값 계획 → ③ 칸 종류에 맞는 위젯 동작으로 변환.
     async def plan(self, profile: ResumeProfile, fields: list[FormField]) -> WorkerPlan:
         mapping_result = await self.mapper.map_fields(fields)
         mappings = mapping_result.mappings
@@ -43,5 +49,6 @@ class KoreanPlanningWorker:
             skipped_field_count=sum(item.resume_path == "unmapped" for item in mappings),
         )
 
+    # 비동기 plan()을 일반 함수처럼 부를 수 있게 감싼 것(스크립트·테스트용).
     def plan_sync(self, profile: ResumeProfile, fields: list[FormField]) -> WorkerPlan:
         return asyncio.run(self.plan(profile, fields))

@@ -1,3 +1,6 @@
+# [역할] 칸 종류별 입력 방법 결정. '값'을 칸의 종류(텍스트, 선택 목록, 라디오, 날짜, 검색 콤보 등)에 맞는 '동작'으로 바꿉니다.
+# 예: 졸업일 2024-02 → 'YYYY.MM' 텍스트면 '2024.02', 연/월 선택 목록이면 각각 선택. 확정할 수 없으면 사람에게 넘깁니다.
+
 from __future__ import annotations
 
 import calendar
@@ -10,6 +13,7 @@ from .constants import DATE_PATHS
 from .mapping import FormField, FormOption
 
 
+# 칸 하나에 대한 구체적인 입력 동작(채우기/선택/라디오/날짜 등). 확정 못 하면 status='needs_human'.
 class WidgetAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,6 +40,7 @@ class WidgetAction(BaseModel):
     reason: str = ""
     inferred: str | None = None
 
+    # 로그용 요약(값 자체는 빼고 '있음/없음'만).
     def safe_summary(self) -> dict[str, object]:
         return {
             "form_field": self.form_field,
@@ -49,11 +54,13 @@ class WidgetAction(BaseModel):
         }
 
 
+# 선택지 비교용 정규화(공백 제거, 따옴표 통일, 소문자).
 def _norm_option(value: str) -> str:
     return re.sub(r"\s+", "", str(value or "")).replace("’", "'").replace("‘", "'").casefold()
 
 
 # Equivalent wordings for enumerated education values (resume wording -> page wording).
+# 같은 뜻의 다른 표기 묶음. 이력서의 '재학'과 사이트의 'Enrolled', '비대상'과 'Not applicable'을 같은 값으로 봅니다.
 OPTION_SYNONYMS: dict[str, tuple[tuple[str, ...], ...]] = {
     "graduation_status": (
         ("졸업", "graduated", "graduation", "졸업완료"),
@@ -99,11 +106,13 @@ OPTION_SYNONYMS: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 
 
+# 괄호 설명을 지운 값('학사(4년제)' → '학사').
 def _strip_note(value: str) -> str:
     """'학사(4년제)' -> '학사' so a parenthetical note does not block an exact match."""
     return re.sub(r"\([^)]*\)|\[[^\]]*\]", "", value or "")
 
 
+# 값과 같은 뜻인 표기 전체를 구합니다. 병역처럼 긴 문장('육군 만기전역')은 그 안의 가장 긴 표기로 판단.
 def _equivalents(path: str | None, value: str) -> set[str]:
     target = _norm_option(_strip_note(value))
     field = (path or "").rsplit(".", 1)[-1]
@@ -120,6 +129,8 @@ def _equivalents(path: str | None, value: str) -> set[str]:
     return {target}
 
 
+# 선택지 고르기. 정확히 하나로 정해질 때만 고르고, 아니면 후보를 돌려줍니다.
+# 순서: 사용자가 직접 고른 값 → 학점 숫자 비교 → 같은 뜻 표기 일치 → 부분 일치(하나뿐일 때만).
 def pick_option(
     texts: list[str], value: str, path: str | None = None, *, chosen: bool = False
 ) -> tuple[int | None, list[str]]:
@@ -167,6 +178,7 @@ def pick_option(
     return None, candidates
 
 
+# 선택지의 value가 정확히 같으면 바로, 아니면 화면 문구로 pick_option.
 def match_option(options: list[FormOption], value: str, path: str | None = None) -> FormOption | None:
     real = [option for option in options if option.value.strip()]
     target = _norm_option(value)
@@ -177,6 +189,7 @@ def match_option(options: list[FormOption], value: str, path: str | None = None)
     return real[index] if index is not None else None
 
 
+# 숫자 선택지(연도·월·일, 010 등)에서 같은 숫자를 가진 선택지가 하나일 때만 선택.
 def _match_number_option(options: list[FormOption], number: int) -> FormOption | None:
     matches = []
     for option in options:
@@ -188,6 +201,7 @@ def _match_number_option(options: list[FormOption], number: int) -> FormOption |
     return matches[0] if len(matches) == 1 else None
 
 
+# 휴대폰 번호를 [앞, 가운데, 끝] 3조각으로. +82는 0으로 바꿉니다.
 def phone_segments(value: str) -> list[str] | None:
     digits = re.sub(r"\D", "", value or "")
     if digits.startswith("82"):
@@ -199,6 +213,7 @@ def phone_segments(value: str) -> list[str] | None:
     return None
 
 
+# 칸의 규칙(pattern, placeholder, 최대 길이)을 보고 하이픈 포함/숫자만 형식을 고릅니다.
 def format_phone_value(field: FormField, value: str) -> str:
     """Pick hyphenated or digits-only from the field's own constraints; keep the resume form otherwise."""
     segments = phone_segments(value)
@@ -224,6 +239,7 @@ def format_phone_value(field: FormField, value: str) -> str:
     return value
 
 
+# 텍스트 날짜 칸의 형식 추정: placeholder('YYYY.MM'), 예시('2020.03'), pattern, 최대 길이 순서로 확인.
 def detect_text_date_format(*, placeholder: str | None, pattern: str | None, maxlength: int | None) -> str | None:
     compact = re.sub(r"\s", "", placeholder or "").upper()
     match = re.search(r"YYYY([^A-Z0-9]?)MM([^A-Z0-9]?)DD", compact)
@@ -260,6 +276,7 @@ def detect_text_date_format(*, placeholder: str | None, pattern: str | None, max
     return None
 
 
+# 예시 모양 그대로 날짜를 다시 씁니다('2026. 10' 같은 특이한 띄어쓰기까지 유지).
 def format_like_example(example: str | None, iso_value: str) -> str | None:
     """Rewrite an ISO date in the shape of an example such as '2026. 10' or '2026-10-20'."""
     match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", iso_value or "")
@@ -272,6 +289,7 @@ def format_like_example(example: str | None, iso_value: str) -> str | None:
     return "".join(parts)
 
 
+# ISO 날짜를 목표 형식(YYYY.MM 등)으로 변환. 일(DD)이 필요한데 없으면 None.
 def format_date_value(iso_value: str, target_format: str | None) -> str | None:
     match = re.fullmatch(r"(\d{4})-(\d{2})(?:-(\d{2}))?", iso_value or "")
     if not match or not target_format:
@@ -282,6 +300,7 @@ def format_date_value(iso_value: str, target_format: str | None) -> str | None:
     return target_format.replace("YYYY", year).replace("MM", month).replace("DD", day or "")
 
 
+# '사람이 직접 처리' 동작을 만드는 도우미.
 def _human(field: FormField, path: str, reason: str) -> WidgetAction:
     return WidgetAction(
         form_field=field.key,
@@ -292,6 +311,9 @@ def _human(field: FormField, path: str, reason: str) -> WidgetAction:
     )
 
 
+# 값 → 칸 종류별 동작 변환(브라우저는 건드리지 않음). 흐름:
+# ① 파일·체크박스·읽기 전용은 사람에게 → ② 날짜(연월만 있으면 입학은 1일, 졸업은 말일로 보충)
+# → ③ 휴대폰 3칸 → ④ 검색 콤보·커스텀 선택 → ⑤ 선택 목록·라디오 → ⑥ 일반 텍스트.
 def plan_widget_action(field: FormField, resume_path: str, value: str, part: str | None = None) -> WidgetAction:
     """Convert a validated resume value into a side-effect-free widget action."""
     kind = field.widget_kind
@@ -385,10 +407,12 @@ def plan_widget_action(field: FormField, resume_path: str, value: str, part: str
     return _human(field, resume_path, f"'{kind}' 입력 방식은 자동 처리하지 않습니다")
 
 
+# 브라우저가 형식 오류를 낼 때 쓸 대체 값. 전화번호·우편번호 형식만 고치고, 이름 같은 의미 있는 값은 절대 바꾸지 않습니다.
 def repair_text_value(field: FormField, resume_path: str, current_value: str) -> str | None:
     """Only repair low-risk formatting; never alter semantic identity fields."""
     pattern = field.pattern
 
+    # 후보가 현재 값과 다르고 칸의 pattern에 맞는지.
     def acceptable(candidate: str) -> bool:
         if not candidate or candidate == current_value:
             return False

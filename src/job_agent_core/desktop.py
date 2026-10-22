@@ -1,3 +1,11 @@
+# 데스크톱 화면(PySide6). 
+# 사용자가 보는 창으로, 
+# 이력서·URL 준비 → 브라우저 열기 → 자동 입력 → 확인 필요 항목 처리 순서를 안내합니다.
+
+# 실제 작업은 로컬 API에 요청하고, 
+# 오래 걸리는 요청은 백그라운드 스레드에서 실행해 화면이 멈추지 않게 합니다. 
+# 최종 제출은 사용자가 브라우저에서 직접 합니다.
+
 from __future__ import annotations
 
 import sys
@@ -32,6 +40,7 @@ from PySide6.QtWidgets import (
 
 
 
+# 내부 상태 코드 → 화면에 보여줄 한국어 문구.
 STATUS_LABELS = {
     "planned": "입력 가능",
     "kept_existing": "기존 값 유지",
@@ -58,15 +67,19 @@ STATUS_LABELS = {
 }
 
 # Results the user can resolve from the review dialog.
+# 사용자가 확인 창에서 해결할 수 있는 상태들.
 REVIEWABLE = {
     "needs_human", "failed_validation", "missing_resume_value", "field_not_found", "filled_llm_unconfirmed", "filled_review",
 }
 # Rows that also get a '상세' button so the user can type a value the resume did not have.
+# '상세' 버튼을 보여줄 행(이력서에 없는 값도 사용자가 직접 입력 가능).
 DETAIL = REVIEWABLE | {"not_in_resume"}
 # Rows sent to the local-LLM second check after the rule fill.
+# 규칙 입력 후 AI 2차 확인으로 보낼 행, 그리고 결과 표의 정렬 순서.
 SECOND_CHECK = {"pending_lookup", "missing_resume_value", "needs_human"}
 ROW_ORDER = {"not_in_resume": 1, "pending_lookup": 1, "user_only": 2, "disabled_on_page": 3, "kept_existing": 4, "filled_verified": 5}
 
+# 화면 위쪽에 표시하는 5단계 진행 안내.
 STEPS = (
     "① 이력서·URL 준비",
     "② 브라우저에서 로그인·지원서 열기",
@@ -76,10 +89,12 @@ STEPS = (
 )
 
 
+# API 요청 실패 시 사용자에게 보여줄 오류.
 class DesktopApiError(RuntimeError):
     pass
 
 
+# 로컬 API를 부르는 클라이언트. 백그라운드 작업 안에서만 사용합니다(화면 멈춤 방지).
 class DesktopApiClient:
     """Synchronous client used only inside background Qt workers."""
 
@@ -87,6 +102,7 @@ class DesktopApiClient:
         self.base_url = base_url.rstrip("/")
         self.headers = {"X-Job-Agent-Token": token, "Accept": "application/json"}
 
+    # 공통 요청 함수: 토큰 헤더 추가, 시간 초과·연결 오류·서버 오류를 사용자용 문구로 바꿉니다.
     def _request(self, method: str, path: str, *, timeout: float = 30, **kwargs: Any) -> dict[str, Any]:
         headers = {**self.headers, **kwargs.pop("headers", {})}
         try:
@@ -109,6 +125,7 @@ class DesktopApiClient:
             raise DesktopApiError(detail or f"요청을 처리하지 못했습니다. ({response.status_code})")
         return response.json()
 
+    # 작업 생성 + 이력서 업로드. 업로드가 실패하면 만든 작업을 취소해 민감 데이터를 남기지 않습니다.
     def prepare(self, target_url: str, resume_path: Path) -> dict[str, Any]:
         task = self._request("POST", "/api/tasks", json={"target_url": target_url})
         task_id = task["task_id"]
@@ -128,6 +145,7 @@ class DesktopApiClient:
             raise
         return {"task": task, "preview": preview}
 
+    # 아래 메서드들은 API 엔드포인트를 하나씩 감싼 것입니다. 단계별로 시간 제한이 다릅니다(LLM 확인은 길게).
     def confirm_name(self, task_id: str, family: str, given: str) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -185,6 +203,7 @@ class DesktopApiClient:
         return self._request("PATCH", f"/api/tasks/{task_id}/resume", json={"path": path, "value": value})
 
 
+# '항목 확인' 창: 판단 근거를 보여 주고, 이력서 값·페이지 후보 중에서 고르거나 직접 고쳐 입력하게 합니다.
 class ReviewDialog(QDialog):
     """Lets the user confirm or correct one field the agent could not finish on its own."""
 
@@ -219,26 +238,31 @@ class ReviewDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    # 사용자가 고른/입력한 값.
     def value(self) -> str:
         return self.value_box.currentText().strip()
 
+    # 값이 페이지 후보 중 하나와 정확히 같은지(같으면 그 선택지를 그대로 클릭).
     def chosen_from_page(self) -> bool:
         """True when the value is exactly one of the option texts read from the page."""
         return self.value() in self.page_options
 
 
+# 백그라운드 작업 → 화면으로 결과를 전달하는 신호(성공/실패/종료).
 class OperationSignals(QObject):
     succeeded = Signal(object)
     failed = Signal(str)
     finished = Signal()
 
 
+# API 호출을 백그라운드 스레드에서 실행하는 작업 단위.
 class ApiOperation(QRunnable):
     def __init__(self, function: Callable[[], object]):
         super().__init__()
         self.function = function
         self.signals = OperationSignals()
 
+    # 작업 실행. 오류는 안전한 문자열로만 화면에 전달합니다.
     def run(self) -> None:
         try:
             result = self.function()
@@ -250,6 +274,7 @@ class ApiOperation(QRunnable):
             self.signals.finished.emit()
 
 
+# 메인 창. 현재 작업 상태(이력서 미리보기, 브라우저 상태, 입력 결과)를 들고 화면을 갱신합니다.
 class ApplyLocalWindow(QMainWindow):
     def __init__(self, client: DesktopApiClient):
         super().__init__()
@@ -274,6 +299,7 @@ class ApplyLocalWindow(QMainWindow):
         self._apply_style()
         self._render_initial()
 
+    # 화면 구성: 입력 영역(이력서·URL), 진행 단계, 요약 숫자, 버튼, 결과 표.
     def _build_ui(self) -> None:
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -415,6 +441,7 @@ class ApplyLocalWindow(QMainWindow):
         layout.addLayout(footer)
         self.setCentralWidget(root)
 
+    # 화면 스타일(색상·여백) 지정.
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
@@ -441,6 +468,7 @@ class ApplyLocalWindow(QMainWindow):
             """
         )
 
+    # 요약 숫자 카드 하나를 만듭니다(찾은 칸, 입력 완료, 확인 필요, 소요 시간).
     @staticmethod
     def _metric(layout: QHBoxLayout, initial: str, caption: str) -> QLabel:
         box = QVBoxLayout()
@@ -455,16 +483,19 @@ class ApplyLocalWindow(QMainWindow):
         value.setProperty("caption", label)
         return value
 
+    # 창을 항상 위에 둘지 전환(브라우저와 나란히 보기 위함).
     def _toggle_always_on_top(self, checked: bool) -> None:
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
         self.show()
 
+    # PDF 이력서 파일 선택.
     def _choose_resume(self) -> None:
         selected, _ = QFileDialog.getOpenFileName(self, "PDF 이력서 선택", "", "PDF (*.pdf)")
         if selected:
             self.resume_path = Path(selected)
             self.resume_edit.setText(self.resume_path.name)
 
+    # 작업 중에는 버튼을 잠가 중복 실행을 막습니다.
     def _set_busy(self, busy: bool) -> None:
         for widget in (
             self.choose_resume_button,
@@ -481,6 +512,7 @@ class ApplyLocalWindow(QMainWindow):
         if not busy:
             self._update_buttons()
 
+    # 공통 실행 도우미: 상태 문구 표시 → 버튼 잠금 → 백그라운드 실행 → 성공/실패 처리 → 잠금 해제.
     def _run(self, message: str, function: Callable[[], object], success: Callable[[Any], None]) -> None:
         self.status_label.setText(message)
         self._set_busy(True)
@@ -503,6 +535,7 @@ class ApplyLocalWindow(QMainWindow):
         operation.signals.finished.connect(finished)
         self.thread_pool.start(operation)
 
+    # ① 단계: 입력값 확인 후 이력서 분석 요청. 소요 시간 측정도 여기서 시작합니다.
     def _prepare(self) -> None:
         url = self.url_edit.text().strip()
         if self.resume_path is None or not self.resume_path.is_file():
@@ -521,6 +554,7 @@ class ApplyLocalWindow(QMainWindow):
             self._prepared,
         )
 
+    # 이력서 분석 결과를 표에 보여 주고, 이름 확인이 필요하면 성/이름 입력칸을 채워 둡니다.
     def _prepared(self, payload: dict[str, Any]) -> None:
         self.task_id = payload["task"]["task_id"]
         self.preview = payload["preview"]
@@ -535,6 +569,7 @@ class ApplyLocalWindow(QMainWindow):
             self.given_edit.setText(values.get("person.name.given", ""))
         self._update_buttons()
 
+    # 이력서 미리보기 표. 값마다 출처(인식 완료/로컬 LLM·확인 필요/사용자 수정)를 표시합니다.
     def _show_preview(self, values: dict[str, str]) -> None:
         self.table_mode = "preview"
         self.table_items = [{"path": path, "value": value} for path, value in values.items()]
@@ -551,6 +586,7 @@ class ApplyLocalWindow(QMainWindow):
             actions=["수정"] * len(values),
         )
 
+    # 사용자가 확인한 성/이름을 서버에 보냅니다.
     def _confirm_name(self) -> None:
         if not self.task_id:
             return
@@ -564,12 +600,14 @@ class ApplyLocalWindow(QMainWindow):
             self._name_confirmed,
         )
 
+    # 이름 확인 완료 후 미리보기 갱신.
     def _name_confirmed(self, preview: dict[str, Any]) -> None:
         self.preview = preview
         self.status_label.setText("이름 확인이 완료되었습니다.")
         self._show_preview(preview["values"])
         self._update_buttons()
 
+    # ② 단계: 작업용 브라우저 열기 / 상태 새로 고침.
     def _open_browser(self) -> None:
         if not self.task_id:
             return
@@ -587,6 +625,7 @@ class ApplyLocalWindow(QMainWindow):
                 self._browser_updated,
             )
 
+    # 브라우저 상태 반영. 승인이 필요한 도메인이 있으면 안내하고, 없으면 로그인 후 자동 입력하라고 안내합니다.
     def _browser_updated(self, browser: dict[str, Any]) -> None:
         self.browser = browser
         self.pending_domain = browser.get("blocked_hostname") or next(
@@ -601,6 +640,7 @@ class ApplyLocalWindow(QMainWindow):
             )
         self._update_buttons()
 
+    # 도메인 허용은 반드시 사용자에게 한 번 물어본 뒤 요청합니다.
     def _approve_domain(self) -> None:
         if not self.task_id or not self.pending_domain:
             return
@@ -614,6 +654,7 @@ class ApplyLocalWindow(QMainWindow):
             self._browser_updated,
         )
 
+    # ③ 단계: 이 페이지 자동 입력(규칙 입력 + 다시 읽기 확인).
     def _fill(self) -> None:
         if self.task_id:
             self._run(
@@ -622,6 +663,7 @@ class ApplyLocalWindow(QMainWindow):
                 self._filled,
             )
 
+    # 규칙 입력 결과를 먼저 보여 준 뒤, 이어서 AI 2차 확인(_lookup)을 시작합니다(사용자가 기다리지 않게).
     def _filled(self, report: dict[str, Any]) -> None:
         self.fill_report = report
         self.inspection = None
@@ -644,6 +686,7 @@ class ApplyLocalWindow(QMainWindow):
         # Started after this operation finishes so the rule results stay visible meanwhile.
         QTimer.singleShot(0, self._lookup)
 
+    # 모든 입력이 끝나면 작업당 한 번 '제출은 직접 하세요' 안내를 띄웁니다.
     def _finish_fill(self) -> None:
         """After the rule fill and the second check: tell once per task that submitting is the user's."""
         if self.fill_report and self.fill_report.get("submit_control_count") and not self.submit_notice_shown:
@@ -654,6 +697,7 @@ class ApplyLocalWindow(QMainWindow):
                 "자동 입력이 끝났습니다. Agent는 제출 버튼을 누르지 않습니다. 모든 내용을 확인한 뒤 브라우저에서 직접 제출하세요.",
             )
 
+    # AI 2차 확인 요청: 확인이 필요한 행만 모아 로컬 LLM에 대조를 요청합니다(1~3분).
     def _lookup(self) -> None:
         if not self.task_id or self.fill_report is None:
             return
@@ -674,6 +718,7 @@ class ApplyLocalWindow(QMainWindow):
         # Buttons are disabled while the local model works; say so instead of looking frozen.
         self.fill_button.setText("이력서 대조 중…")
 
+    # 2차 확인 결과를 기존 결과 표에 fingerprint 기준으로 합칩니다(같은 칸을 정확히 교체).
     def _looked_up(self, report: dict[str, Any]) -> None:
         if self.fill_report is None:
             return
@@ -695,6 +740,7 @@ class ApplyLocalWindow(QMainWindow):
         self._update_buttons()
         self._finish_fill()
 
+    # 안전한 '다음' 버튼으로 다음 페이지 이동 요청 / 이동 후 상태 초기화.
     def _next_page(self) -> None:
         if self.task_id:
             self._run(
@@ -709,6 +755,7 @@ class ApplyLocalWindow(QMainWindow):
         self._browser_updated(browser)
         self.status_label.setText("다음 페이지로 이동했습니다. '이 페이지 자동 입력'을 다시 누르세요.")
 
+    # 입력 결과 표. 사용자가 처리해야 할 항목을 맨 위에 보여 줍니다.
     def _show_results(self, results: list[dict[str, Any]]) -> None:
         # Items needing the user come first so they are visible without scrolling.
         ordered = sorted(results, key=lambda item: 0 if item.get("status") in REVIEWABLE else ROW_ORDER.get(item.get("status"), 5))
@@ -733,6 +780,7 @@ class ApplyLocalWindow(QMainWindow):
             actions=["상세" if item.get("status") in DETAIL else "" for item in ordered],
         )
 
+    # 표의 행과 '상세/수정' 버튼을 채웁니다.
     def _set_rows(self, rows: list[tuple[str, str, str]], actions: list[str] | None = None) -> None:
         self.table.setRowCount(len(rows))
         for row, values in enumerate(rows):
@@ -749,6 +797,7 @@ class ApplyLocalWindow(QMainWindow):
                 self.table.removeCellWidget(row, 3)
                 self.table.setItem(row, 3, QTableWidgetItem(""))
 
+    # 행 클릭: 미리보기 모드면 이력서 값 수정, 결과 모드면 확인 창 열기.
     def _row_activated(self, row: int, _column: int) -> None:
         if not self.task_id or not 0 <= row < len(self.table_items):
             return
@@ -758,6 +807,7 @@ class ApplyLocalWindow(QMainWindow):
         elif item.get("status") in DETAIL:
             self._review(item)
 
+    # 이력서 값 수정 요청(이번 실행 동안만, 원본 파일은 바뀌지 않음).
     def _edit_resume_value(self, path: str, current: str) -> None:
         value, accepted = QInputDialog.getText(self, "이력서 값 수정", path, text=current)
         if not accepted or value.strip() == current:
@@ -768,6 +818,7 @@ class ApplyLocalWindow(QMainWindow):
             lambda preview: self._resume_edited(preview, path),
         )
 
+    # 수정 결과를 반영하고 출처를 '사용자 수정'으로 표시합니다.
     def _resume_edited(self, preview: dict[str, Any], path: str = "") -> None:
         sources = dict((self.preview or {}).get("sources", {}))
         if path:
@@ -777,6 +828,7 @@ class ApplyLocalWindow(QMainWindow):
         self._show_preview(preview["values"])
         self._update_buttons()
 
+    # ④ 단계: 확인 창을 열고, 사용자가 고른 값으로 칸 하나를 입력 요청합니다.
     def _review(self, item: dict[str, Any]) -> None:
         values = (self.preview or {}).get("values", {})
         dialog = ReviewDialog(self, item, values.get(item.get("resume_path") or "", ""))
@@ -789,6 +841,7 @@ class ApplyLocalWindow(QMainWindow):
             self._field_filled,
         )
 
+    # 칸 하나 입력 결과를 표에 반영. 실패하면 이유를 팝업으로 알려 줍니다(클릭이 무시된 것처럼 보이지 않게).
     def _field_filled(self, result: dict[str, Any]) -> None:
         def same(item: dict[str, Any]) -> bool:
             if item.get("fingerprint") and result.get("fingerprint"):
@@ -808,6 +861,7 @@ class ApplyLocalWindow(QMainWindow):
             # Without this the row can look unchanged and the click seems to do nothing.
             QMessageBox.information(self, "입력하지 못했습니다", result.get("reason", "") or "브라우저에서 직접 확인해 주세요.")
 
+    # 현재 상태로 진행 단계(①~⑤)를 계산하고 화면에 표시합니다.
     def _current_step(self) -> int:
         if self.preview is None or self.preview.get("name_confirmation_required"):
             return 0
@@ -826,11 +880,13 @@ class ApplyLocalWindow(QMainWindow):
             label.style().unpolish(label)
             label.style().polish(label)
 
+    # 소요 시간 표시(이력서 준비 시작부터 규칙 입력 완료까지).
     def _update_elapsed(self) -> None:
         if self.started_at.isValid():
             elapsed = self.started_at.elapsed() // 1000
             self.elapsed_value.setText(f"{elapsed // 60:02d}:{elapsed % 60:02d}")
 
+    # 상태에 따라 버튼 표시/활성화를 결정합니다(지금 할 수 있는 버튼만 보이게).
     def _update_buttons(self) -> None:
         has_preview = self.preview is not None
         needs_name = bool(has_preview and self.preview and self.preview["name_confirmation_required"])
@@ -853,6 +909,7 @@ class ApplyLocalWindow(QMainWindow):
         self.url_edit.setReadOnly(has_preview)
         self._render_steps()
 
+    # 화면을 처음 상태로 초기화.
     def _render_initial(self) -> None:
         self.preview = None
         self.browser = None
@@ -874,6 +931,7 @@ class ApplyLocalWindow(QMainWindow):
         self.url_edit.setReadOnly(False)
         self._update_buttons()
 
+    # 새 작업 시작: 서버의 현재 작업을 취소(민감 데이터 삭제)한 뒤 화면을 비웁니다.
     def _reset(self) -> None:
         task_id = self.task_id
 
@@ -890,6 +948,7 @@ class ApplyLocalWindow(QMainWindow):
         else:
             cleared()
 
+    # 창을 닫을 때도 작업을 취소해 브라우저와 민감 데이터를 정리합니다.
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
         if self.task_id:
             try:
@@ -899,6 +958,7 @@ class ApplyLocalWindow(QMainWindow):
         event.accept()
 
 
+# 데스크톱 앱 실행 진입점.
 def run_desktop(base_url: str, token: str) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("Apply Local")

@@ -1,3 +1,6 @@
+# [역할] 화면 분석(칸 찾기). 브라우저 안에서 스크립트를 실행해 입력 칸·버튼 목록을 읽어 FormField로 만듭니다.
+# 값은 읽지 않고 '값이 있는지'만 확인하며, 각 칸에 표시용 속성(data-apply-local-field)을 붙여 이후 입력 단계가 같은 칸을 정확히 찾게 합니다.
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,6 +12,13 @@ from .address_search import is_postcode_host
 from .mapping import FormField
 
 
+# 브라우저(각 frame)에서 실행되는 분석 스크립트. 하는 일:
+# ① 보이는 입력 칸 수집(숨겨진 라디오는 감싼 label이 보이면 포함)
+# ② 라벨 찾기: aria → <label> → 행 제목 → 주변 제목 → 질문 문장 순서
+# ③ 칸 종류 판단: 텍스트/선택/라디오/날짜/검색 콤보/커스텀 달력 등
+# ④ 연·월·일 선택 3개는 날짜 칸 하나로, 같은 name의 라디오는 한 그룹으로 묶기
+# ⑤ 비밀번호·인증번호·주민번호 같은 민감 칸은 자동 입력 대상에서 제외
+# ⑥ 버튼 목록과 로그인 칸 존재 여부를 함께 반환.
 INSPECT_SCRIPT = r"""
 ({ prefix, limit }) => {
   const FIELD_ATTR = "data-apply-local-field";
@@ -370,6 +380,7 @@ INSPECT_SCRIPT = r"""
 """
 
 
+# 칸 하나를 다시 찾기 위한 정보: 어느 frame에 있는지 + 붙여 둔 표시 속성 키.
 @dataclass(slots=True)
 class FieldTarget:
     frame: Frame
@@ -377,14 +388,17 @@ class FieldTarget:
     widget_kind: str
     part_keys: dict[str, str] = field(default_factory=dict)
 
+    # 입력 단계에서 이 칸을 찾는 CSS 선택자.
     @property
     def selector(self) -> str:
         return f'[data-apply-local-field="{self.key}"]'
 
+    # 연/월/일처럼 여러 부분으로 된 칸의 각 부분 선택자.
     def part_selector(self, part: str) -> str:
         return f'[data-apply-local-field="{self.part_keys[part]}"]'
 
 
+# 버튼 하나(문구·type 포함). 제출 버튼인지 판단해 누르지 않기 위해 수집합니다.
 @dataclass(slots=True)
 class ControlTarget:
     frame: Frame
@@ -399,6 +413,7 @@ class ControlTarget:
         return f'[data-apply-local-next="{self.key}"]'
 
 
+# 화면 분석 결과 묶음: 칸 목록, 칸 위치, 버튼, 로그인 칸 여부, 승인 안 된 iframe 도메인.
 @dataclass(slots=True)
 class PageInspection:
     fields: list[FormField]
@@ -408,8 +423,11 @@ class PageInspection:
     unapproved_frame_hosts: set[str] = field(default_factory=set)
 
 
+# 칸마다 고정 이름(fingerprint)을 붙입니다. 페이지에 칸이 추가되면 순서 번호가 밀리기 때문에,
+# name 속성이 유일하면 그것을, 아니면 '영역 + 라벨 + 몇 번째'를 사용합니다.
 def assign_fingerprints(fields: list[FormField]) -> None:
     """Name the field by its data-model name when unique, else by section + label + occurrence."""
+    # 칸 키에서 frame 번호를 꺼냅니다.
     def frame_of(field: FormField) -> str:
         return field.key.split("-", 2)[1] if field.key.count("-") >= 2 else ""
 
@@ -429,6 +447,8 @@ def assign_fingerprints(fields: list[FormField]) -> None:
         field.fingerprint = f"{frame}|label:{field.section}|{field.label}|{occurrence}"
 
 
+# 페이지 전체 분석. frame(iframe 포함)마다 스크립트를 실행하되,
+# 주소 검색 창은 건너뛰고, 승인되지 않은 도메인의 iframe은 읽지 않고 승인 후보로만 기록합니다.
 async def inspect_page(
     page: Page,
     *,

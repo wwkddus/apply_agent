@@ -1,3 +1,8 @@
+# 입력 계획 단계. 
+
+# '어느 칸 ↔ 어느 이력서 항목' 연결 결과를 받아, 칸마다 실제로 넣을 값과 상태를 정합니다.
+# 브라우저를 건드리지 않는 순수 계산이라, 이미 값이 있거나 확인이 필요한 칸은 여기서 걸러집니다.
+
 from __future__ import annotations
 
 from typing import Literal
@@ -10,6 +15,7 @@ from .models import EducationRecord, ResumeProfile, clean_field
 from .names import confirm_name_parts, infer_latin_name, infer_name_parts, name_components_usable
 
 
+# 칸 하나에 대한 입력 계획. status로 '입력 예정 / 기존 값 유지 / 사람 확인 필요 / 값 없음' 등을 구분합니다.
 class FillAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -30,6 +36,7 @@ class FillAction(BaseModel):
     reason: str = ""
     part: str | None = None
 
+    # 로그용 요약. 실제 값은 빼고 '값이 있는지'만 남겨 개인정보가 기록되지 않게 합니다.
     def safe_summary(self) -> dict[str, object]:
         return {
             "form_field": self.form_field,
@@ -41,6 +48,7 @@ class FillAction(BaseModel):
         }
 
 
+# 학력 기록으로 '최종 학력' 문구를 계산합니다. 대학원 학위가 안 적혀 있으면 석사/박사를 추측하지 않습니다.
 def highest_education(profile: ResumeProfile) -> str:
     """최종 학력 wording from the records; a graduate school without a stated degree stays '대학원'."""
     records = {record.education_level: record for record in profile.education if record.school_name}
@@ -58,6 +66,7 @@ def highest_education(profile: ResumeProfile) -> str:
     return ""
 
 
+# 'person.email' 같은 경로 문자열로 이력서에서 값을 꺼냅니다.
 def get_resume_value(profile: ResumeProfile, path: str) -> str:
     if path == "education.highest_level":
         return highest_education(profile)
@@ -76,11 +85,14 @@ def get_resume_value(profile: ResumeProfile, path: str) -> str:
     return ""
 
 
+# 경로의 마지막 부분을 clean_field 규칙 이름으로 사용합니다.
 def field_name_for_path(path: str) -> str:
     """The clean_field() rule name for a resume path, e.g. education.university.gpa -> gpa."""
     return "skills" if path == "skills" else path.rsplit(".", 1)[-1]
 
 
+# 사용자가 화면에서 고친 값을 이력서에 반영한 '새 복사본'을 돌려줍니다(원본은 그대로).
+# 이름은 다시 성/이름으로 나누고, 영문 이름·개인정보·학력은 각각의 규칙으로 검증합니다.
 def set_resume_value(profile: ResumeProfile, path: str, value: str) -> ResumeProfile:
     """Return a copy with one user-corrected value; raises ValueError for invalid input."""
     if path not in ALLOWED_RESUME_PATHS or path in DERIVED_PATHS:
@@ -118,6 +130,9 @@ def set_resume_value(profile: ResumeProfile, path: str, value: str) -> ResumePro
     return ResumeProfile.model_validate({**profile.model_dump(), "education": [record.model_dump() for record in records]})
 
 
+# 칸마다 입력 여부를 결정. 판단 순서(안전한 쪽 우선):
+# 기존 값 있음 → 유지 / 읽기 전용 → 건드리지 않음 / 체크박스·파일 → 사용자 처리 /
+# 연결이 불확실 → 사람 확인 / 이름 분리 미확인 → 1회 확인 / 이력서에 값 없음 → 누락 / 그 외 → 입력 예정.
 def build_fill_plan(
     profile: ResumeProfile,
     fields: list[FormField],

@@ -1,3 +1,5 @@
+# [역할] AI 2차 확인. 규칙이 못 채운 칸만 골라 로컬 LLM에 '이력서에서 이 칸의 값을 찾아 달라'고 묻습니다.
+# LLM 답은 이력서 원문 근거 문장이 있어야만 채택하고, 채택된 값도 항상 '확인 필요'로 남습니다.
 """Second check: answer, from the resume text, the page fields the rules could not fill.
 
 The fixed schema (name, contact, education...) keeps its deterministic rules. Fields the rules
@@ -30,6 +32,7 @@ from .resume_llm import MAX_TEXT_CHARS, _compact, chat_json, is_grounded
 from .widgets import pick_option
 
 
+# LLM에게 물을 칸 하나. 규칙으로 읽은 값은 있지만 선택지와 안 맞을 때 그 값(known_value)도 같이 보냅니다.
 @dataclass(slots=True)
 class LookupItem:
     field: FormField
@@ -38,11 +41,13 @@ class LookupItem:
 
 
 # (accepted values, rejection reasons), both keyed by form field key.
+# 결과 형식: (채택된 값, 버린 이유). 의존성 주입을 위해 조회 함수의 형식도 정의합니다.
 LookupResult = tuple[dict[str, str], dict[str, str]]
 LookupFn = Callable[[list[LookupItem]], Awaitable[LookupResult]]
 
 NO_EVIDENCE = "이력서에서 근거를 찾지 못했습니다."
 
+# 한 번에 묻는 칸·선택지 수 제한과, LLM에 보낼 수 있는 칸 종류.
 MAX_LOOKUP_FIELDS = 40
 MAX_OPTIONS = 30
 LOOKUP_WIDGETS = {
@@ -58,6 +63,7 @@ LOOKUP_WIDGETS = {
 }
 DATE_WIDGETS = {"native_date", "native_month", "custom_date_picker"}
 # Open questions need the applicant's own writing; the agent never composes it.
+# 자기소개·지원동기 같은 서술형 문항. Agent는 새 문장을 절대 쓰지 않습니다.
 _OPEN_QUESTION_RE = re.compile(
     r"자기\s*소개|지원\s*동기|입사\s*후|포부|성장\s*과정|성격|장단점|문항|질문|경험을\s*기술|자유\s*기술|하고\s*싶은\s*말|"
     r"cover\s*letter|motivation|essay|question",
@@ -65,6 +71,7 @@ _OPEN_QUESTION_RE = re.compile(
 )
 
 
+# LLM 답 하나: 칸 id, 값, 근거 문장.
 class _Answer(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -73,12 +80,14 @@ class _Answer(BaseModel):
     evidence: str = ""
 
 
+# LLM 응답 전체 형식.
 class LookupAnswers(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     answers: list[_Answer] = Field(default_factory=list)
 
 
+# LLM 지시문: 근거 있는 칸만 답하고, 근거 문장은 원문 그대로, 선택지가 있으면 선택지 중에서 고를 것.
 PROMPT = """아래는 지원자의 이력서 텍스트와, 채용 지원서에서 아직 비어 있는 입력 항목 목록입니다.
 각 항목에 들어갈 값을 이력서에서 찾아 JSON으로 답하세요.
 규칙:
@@ -99,6 +108,7 @@ PROMPT = """아래는 지원자의 이력서 텍스트와, 채용 지원서에�
 
 
 # This application's own questions (start date, salary, location...) are the applicant's choice.
+# 입사 가능일·희망 연봉처럼 '이번 지원에 대한 본인의 선택'은 이력서로 답할 수 없으므로 제외.
 _PREFERENCE_RE = re.compile(
     r"입사\s*가능|입사\s*예정|근무\s*가능일|희망\s*(연봉|근무|직무|지역)|현재\s*연봉|이전\s*연봉|직전\s*연봉|"
     r"available\s*(date|start)|expected\s*salary|previous\s*salary|current\s*salary|desired",
@@ -108,6 +118,8 @@ _EMAIL_VALUE_RE = re.compile(r"\S+@\S+\.\S+")
 _PHONE_VALUE_RE = re.compile(r"^\+?[\d\s().-]{9,}$")
 
 
+# 값 종류 검사: 이메일·전화번호 모양의 값은 이메일·연락처 칸에만 허용.
+# (실제 사례: 입사가능일 칸에 이메일이 들어가려던 문제를 막음)
 def _kind_mismatch(field: FormField, value: str) -> str | None:
     """An email or phone answer only belongs in an email or phone field."""
     context = f"{field.label} {field.name or ''} {field.placeholder or ''}"
@@ -120,10 +132,13 @@ def _kind_mismatch(field: FormField, value: str) -> str | None:
     return None
 
 
+# 연속 공백을 하나로.
 def _collapse(value: str) -> str:
     return " ".join((value or "").split())
 
 
+# 이 칸을 사용자에게 맡겨야 하는 이유. None이면 LLM에게 물어도 되는 칸입니다.
+# 동의·파일 / 서술형 / 본인 선택 항목 / 타인 정보 / 지원 안 하는 위젯 / 라벨 없음 순으로 확인.
 def user_only_reason(field: FormField) -> str | None:
     """Why the agent leaves this field to the user, or None when it may be answered from the resume."""
     context = f"{field.section} {field.label} {' '.join(field.group_labels[:3])} {field.name or ''}"
@@ -142,6 +157,7 @@ def user_only_reason(field: FormField) -> str | None:
     return None
 
 
+# LLM에게 물을 칸 고르기: 규칙이 연결 못 했고, 비어 있고, 사용자 전용이 아닌 칸만.
 def lookup_candidates(fields: list[FormField], mappings: list[MappingRecord]) -> list[FormField]:
     """Fields the rules left unmapped and that are safe to answer from the resume."""
     mapped = {item.form_field for item in mappings if item.resume_path != "unmapped"}
@@ -153,6 +169,7 @@ def lookup_candidates(fields: list[FormField], mappings: list[MappingRecord]) ->
     return chosen[:MAX_LOOKUP_FIELDS]
 
 
+# LLM에 보낼 칸 목록(JSON). 라벨·영역·선택지 등만 보내고 현재 입력값은 보내지 않습니다.
 def _field_payload(items: list[LookupItem]) -> str:
     rows = []
     for item in items:
@@ -171,11 +188,15 @@ def _field_payload(items: list[LookupItem]) -> str:
     return json.dumps(rows, ensure_ascii=False)
 
 
+# 근거 문장이 이력서 원문에 있는지 확인. PDF는 띄어쓰기가 깨지기 쉬워 공백·기호를 무시하고도 비교합니다.
 def _in_resume(evidence: str, text: str) -> bool:
     """Verbatim, or verbatim once spacing and punctuation are ignored (PDF text spaces Korean oddly)."""
     return evidence in _collapse(text) or (len(_compact(evidence)) >= 2 and _compact(evidence) in _compact(text))
 
 
+# LLM 답 검증(가장 중요한 안전장치). 흐름:
+# 형식 검사 → 값 종류 검사 → 근거 문장이 원문에 있는지 → 선택지가 있으면 선택지와 일치하는지 /
+# 없으면 값이 근거 문장 안에 있는지. 하나라도 실패하면 버리고 이유를 남깁니다.
 def validate_answers(answers: LookupAnswers, items: list[LookupItem], text: str) -> LookupResult:
     """Keep only answers backed by a resume sentence; give a reason for every rejected one."""
     by_key = {item.field.key: item for item in items}
@@ -219,6 +240,7 @@ def validate_answers(answers: LookupAnswers, items: list[LookupItem], text: str)
     return accepted, rejected
 
 
+# 전체 흐름: 프롬프트 생성 → 로컬 Ollama 호출 → validate_answers로 검증된 값만 반환.
 async def lookup_answers(
     text: str,
     items: list[LookupItem],

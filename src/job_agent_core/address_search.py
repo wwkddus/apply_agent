@@ -1,3 +1,5 @@
+# [역할] 주소 자동 검색. 읽기 전용 주소 칸은 JS로 값을 넣지 않고, 사람처럼 카카오 우편번호 창을 열어 검색·선택합니다.
+# 이유: 이 창이 사이트가 제출 때 필요한 숨은 값(건물 코드 등)까지 함께 채워 주기 때문입니다. 결과가 하나일 때만 자동 선택합니다.
 """Address-search adapter for read-only 주소 fields filled by the Kakao (Daum) postcode widget.
 
 Most Korean application forms make 우편번호/기본주소 read-only and fill them from the postcode
@@ -24,11 +26,14 @@ from urllib.parse import urlsplit
 
 from playwright.async_api import Error as PlaywrightError, Frame, Page
 
+# 카카오(다음) 우편번호 창의 도메인과 검색창·결과 목록 선택자.
 POSTCODE_HOSTS = ("postcode.map.kakao.com", "postcode.map.daum.net")
 SEARCH_BOX = "#region_name"
 RESULT_ITEMS = "li.list_post_item"
 MAX_CANDIDATES = 5
 
+# 주소 칸 근처(최대 4단계 위)에서 '우편번호 찾기/주소 검색' 버튼을 찾는 브라우저 스크립트.
+# 버튼이 여러 개면 애매하므로 중단하고, 제출 버튼일 수 있으면 절대 누르지 않습니다.
 _FIND_BUTTON_SCRIPT = r"""
 (element) => {
   const pattern = /우편\s*번호|주소\s*(검색|찾기)|post\s*code|zip\s*code|address\s*search|^\s*(검색|찾기)\s*$/i;
@@ -55,6 +60,7 @@ _FIND_BUTTON_SCRIPT = r"""
 """
 
 
+# 주소 검색 결과: 성공 여부, 이유, 우편번호·주소, 후보 목록, 진행 기록(값 없이 단계만).
 @dataclass(slots=True)
 class AddressSearchResult:
     ok: bool
@@ -70,10 +76,12 @@ class AddressSearchResult:
     trace: list[str] = field(default_factory=list)
 
 
+# 비교용 문자열(공백·기호 제거, 소문자).
 def _plain(value: str) -> str:
     return re.sub(r"[\s,.\-()·]+", "", value or "").casefold()
 
 
+# 검색어 만들기: 도로명/지번 번호까지만 사용. 동·호수 같은 상세주소는 검색을 방해하므로 뺍니다.
 def search_query(address: str) -> str:
     """The resume address up to the building/lot number; unit and floor text confuse the search."""
     text = " ".join((address or "").split())
@@ -84,24 +92,29 @@ def search_query(address: str) -> str:
     return text
 
 
+# 결과 비교용 핵심 키(예: '세종대로110'). 시·도 표기 차이(서울특별시/서울)를 피하기 위함.
 def _key(query: str) -> str:
     """Road/lot name and number, e.g. '세종대로110'; the city part is written differently ('서울특별시' vs '서울')."""
     return _plain(" ".join(query.split()[-2:]))
 
 
+# 우편번호 창 도메인인지 확인.
 def is_postcode_host(hostname: str) -> bool:
     host = (hostname or "").casefold()
     return any(host == item or host.endswith("." + item) for item in POSTCODE_HOSTS)
 
 
+# URL에서 호스트만 꺼내기.
 def _host(url: str) -> str:
     return (urlsplit(url or "").hostname or "").casefold()
 
 
+# 버튼 클릭 후 새로 열린 창(팝업) 목록.
 def _new_pages(page: Page, known_pages: set[Page]) -> list[Page]:
     return [item for item in page.context.pages if item not in known_pages and not item.is_closed()]
 
 
+# 우편번호 검색창 찾기. 페이지 안 iframe일 수도, 새 팝업 창일 수도 있어 둘 다 일정 시간 동안 확인합니다.
 async def _widget_frame(page: Page, known_pages: set[Page], timeout: float) -> tuple[Frame | None, Page | None]:
     """The postcode frame inside the page, or in a window opened by the click (directly or nested)."""
     deadline = asyncio.get_running_loop().time() + timeout
@@ -120,6 +133,7 @@ async def _widget_frame(page: Page, known_pages: set[Page], timeout: float) -> t
     return None, None
 
 
+# 이번 클릭으로 열린 창만 닫습니다. 지원서 페이지는 절대 닫지 않습니다.
 async def _close_new(page: Page, known_pages: set[Page]) -> None:
     """Close every window this click opened; the application page itself is never closed."""
     for item in _new_pages(page, known_pages):
@@ -129,6 +143,7 @@ async def _close_new(page: Page, known_pages: set[Page]) -> None:
             pass
 
 
+# 검색 결과 목록 읽기. 결과 수가 더 이상 바뀌지 않을 때까지(로딩 완료) 잠깐 기다립니다.
 async def _results(frame: Frame, timeout: float = 6.0) -> list[dict[str, str]]:
     deadline = asyncio.get_running_loop().time() + timeout
     previous = -1
@@ -151,6 +166,8 @@ async def _results(frame: Frame, timeout: float = 6.0) -> list[dict[str, str]]:
     return rows
 
 
+# 결과 고르기: 핵심 키와 맞는 결과가 딱 하나일 때만 선택(여러 개면 우편번호로 한 번 더 좁힘).
+# 확정 못 하면 사용자에게 보여줄 후보 목록을 돌려줍니다.
 def choose_result(rows: list[dict[str, str]], query: str, postal_code: str) -> tuple[int | None, list[str]]:
     """Index of the single matching result, else None with candidates for the user."""
     key = _key(query)
@@ -163,6 +180,9 @@ def choose_result(rows: list[dict[str, str]], query: str, postal_code: str) -> t
     return None, candidates[:MAX_CANDIDATES]
 
 
+# 주소 검색 전체 흐름:
+# ① 검색 버튼 찾기(제출 버튼이면 중단) → ② 클릭 → ③ 검색창 찾기 → ④ 도메인 승인 확인
+# → ⑤ 검색어 입력 → ⑥ 결과가 하나면 선택 / 아니면 창을 열어 둔 채 사용자에게 선택을 맡김.
 async def search_address(
     page: Page,
     address_frame: Frame,
@@ -175,6 +195,7 @@ async def search_address(
     """Run the postcode widget for the resume address; the caller reads the page fields back."""
     trace: list[str] = []
 
+    # 진행 기록(trace)을 붙여 결과를 만드는 도우미.
     def result(ok: bool, reason: str, **extra) -> AddressSearchResult:
         return AddressSearchResult(ok, reason, trace=trace, **extra)
 
@@ -244,6 +265,7 @@ async def search_address(
                   zonecode=row.get("zonecode", ""), address=row.get("addr", ""))
 
 
+# 선택 후 페이지의 주소 칸을 다시 읽어, 고른 주소가 실제로 들어갔는지 확인합니다.
 def address_matches(actual: str, chosen: str, query: str) -> bool:
     """The page's address field shows the selected road/lot address."""
     value = _plain(actual)
