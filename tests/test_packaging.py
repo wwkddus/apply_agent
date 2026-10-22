@@ -43,7 +43,9 @@ class AppPathTests(unittest.TestCase):
     def test_default_data_dir_prefers_env_then_frozen_app_folder(self):
         with mock.patch.dict(os.environ, {"JOB_AGENT_DATA_DIR": "/tmp/custom"}):
             self.assertEqual(default_data_dir(), Path("/tmp/custom"))
-        with mock.patch.dict(os.environ, {}, clear=True):
+        # 환경 변수를 모두 지우면 Windows에서 홈 폴더(USERPROFILE)를 못 찾으므로 이 값만 뺍니다.
+        environ = {key: value for key, value in os.environ.items() if key != "JOB_AGENT_DATA_DIR"}
+        with mock.patch.dict(os.environ, environ, clear=True):
             self.assertEqual(default_data_dir(), Path(".job_agent"))
             with mock.patch.object(sys, "frozen", True, create=True):
                 self.assertEqual(default_data_dir(), user_data_dir())
