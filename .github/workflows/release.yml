@@ -1,0 +1,72 @@
+# 버전 태그(v<version>)를 push하면 macOS·Windows 앱을 빌드해 GitHub Release에 올립니다.
+# Actions 탭에서 수동 실행(Run workflow)하면 Release 없이 빌드 결과(Artifacts)만 만듭니다.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            asset: ApplyLocal-mac-AppleSilicon.zip
+          - os: windows-latest
+            asset: ApplyLocal-windows.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install . "pyinstaller>=6.10,<7"
+
+      - name: Unit tests
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src
+        run: python -m unittest tests.test_packaging tests.test_security tests.test_resume_parser tests.test_mapping_and_planning
+
+      - name: Build
+        run: pyinstaller packaging/ApplyLocal.spec --noconfirm
+
+      - name: Zip (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/Apply Local.app" "${{ matrix.asset }}"
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/Apply Local" -DestinationPath "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ApplyLocal-mac-AppleSilicon.zip
+            ApplyLocal-windows.zip
+          generate_release_notes: true

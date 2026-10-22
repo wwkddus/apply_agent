@@ -35,6 +35,16 @@ class BrowserLoginNotComplete(BrowserSessionError):
     pass
 
 
+# 시도할 브라우저: None은 Playwright가 내려받은 Chromium, 나머지는 사용자가 설치한 브라우저.
+BROWSER_CHANNELS: tuple[str | None, ...] = (None, "chrome", "msedge")
+
+
+# 브라우저가 설치되어 있지 않아서 난 오류인지(다음 후보로 넘어가도 되는지).
+def browser_missing(error: Exception) -> bool:
+    message = str(error)
+    return "Executable doesn't exist" in message or "is not found at" in message
+
+
 # 화면에 보여줄 브라우저 상태(현재 도메인, 막힌 도메인, 분석 가능 여부 등). 전체 URL 대신 정리된 URL만 담습니다.
 class BrowserStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -100,6 +110,24 @@ class BrowserSessionManager:
             self._playwright = await async_playwright().start()
         return self._playwright
 
+    # 브라우저 실행. Playwright Chromium → 설치된 Chrome → Edge 순서로 시도합니다.
+    # 설치한 앱에는 Chromium이 들어 있지 않으므로, 사용자의 Chrome(Windows는 기본 Edge)을 씁니다.
+    async def _launch(self, runtime: Playwright, profile_dir: Path) -> BrowserContext:
+        for channel in BROWSER_CHANNELS:
+            options = {"channel": channel} if channel else {}
+            try:
+                return await runtime.chromium.launch_persistent_context(
+                    user_data_dir=str(profile_dir),
+                    headless=self.headless,
+                    viewport=None if not self.headless else {"width": 1280, "height": 900},
+                    args=["--no-default-browser-check", "--disable-background-networking"],
+                    **options,
+                )
+            except PlaywrightError as error:
+                if not browser_missing(error):
+                    raise BrowserSessionError("브라우저를 시작하지 못했습니다.") from None
+        raise BrowserSessionError("Chrome 또는 Microsoft Edge를 찾지 못했습니다. Chrome을 설치한 뒤 다시 시도해 주세요.")
+
     # 채용 페이지 열기. 흐름: URL 검사 → 작업 전용 프로필 생성 → Chromium 실행
     # → 모든 페이지 이동을 route_guard로 감시 → 페이지 열기.
     async def open(self, task_id: str, raw_url: str, target_hostname: str) -> BrowserStatus:
@@ -119,19 +147,10 @@ class BrowserSessionManager:
                 pass
             runtime = await self._runtime()
             try:
-                context = await runtime.chromium.launch_persistent_context(
-                    user_data_dir=str(profile_dir),
-                    headless=self.headless,
-                    viewport=None if not self.headless else {"width": 1280, "height": 900},
-                    args=["--no-default-browser-check", "--disable-background-networking"],
-                )
-            except PlaywrightError as error:
+                context = await self._launch(runtime, profile_dir)
+            except BrowserSessionError:
                 shutil.rmtree(profile_dir, ignore_errors=True)
-                if "Executable doesn't exist" in str(error):
-                    raise BrowserSessionError(
-                        "Chromium이 설치되지 않았습니다. '.venv/bin/python -m playwright install chromium'을 실행해 주세요."
-                    ) from None
-                raise BrowserSessionError("브라우저를 시작하지 못했습니다.") from None
+                raise
             page = context.pages[0] if context.pages else await context.new_page()
             session = BrowserSession(
                 task_id=task_id,

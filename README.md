@@ -6,6 +6,38 @@ Apply Local은 PDF 이력서를 읽어 한국 채용 사이트의 지원서 양�
 
 ▶ **데모 영상**: [SK 채용 사이트 · 샘플 이력서로 실행한 화면 (YouTube)](https://youtu.be/k29NE6OlPis)
 
+## 다운로드 · 설치
+
+**[최신 버전 다운로드 (Releases)](https://github.com/wwkddus/apply_agent/releases/latest)**
+
+| 컴퓨터 | 받을 파일 |
+|---|---|
+| Mac (M1/M2/M3/M4, Apple Silicon) | `ApplyLocal-mac-AppleSilicon.zip` |
+| Windows 10/11 | `ApplyLocal-windows.zip` |
+
+**준비물**: Chrome 브라우저(Mac). Windows는 기본으로 설치된 Edge를 쓰므로 따로 필요 없습니다. Python 등 다른 설치는 필요 없습니다.
+
+### Mac
+1. zip을 풀고 `Apply Local.app`을 「응용 프로그램(Applications)」 폴더로 옮깁니다.
+2. 처음 실행하면 「확인되지 않은 개발자」 경고가 뜹니다. 개인이 만든 무료 앱이라 Apple 인증을 받지 않았기 때문입니다.
+   - 「시스템 설정 → 개인정보 보호 및 보안」 아래쪽의 **「그래도 열기」**를 누릅니다.
+   - 「손상되었기 때문에 열 수 없습니다」라고 나오면 터미널에서 한 번 실행합니다:
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Apply Local.app"
+     ```
+
+### Windows
+1. zip을 풀고 `Apply Local` 폴더 안의 `Apply Local.exe`를 실행합니다. 폴더 안의 다른 파일은 지우지 마세요.
+2. 「Windows의 PC 보호」 창이 뜨면 **「추가 정보」 → 「실행」**을 누릅니다.
+
+### AI 보조 기능 (선택)
+Ollama 없이도 규칙 기반 입력은 모두 동작합니다. 표 형식이 아닌 이력서 읽기와 2차 확인까지 쓰려면 [Ollama](https://ollama.com/download)를 설치한 뒤 터미널에서 모델을 받습니다(약 5GB).
+```bash
+ollama pull qwen2.5:7b
+```
+
+이력서와 실행 기록은 내 컴퓨터에만 저장됩니다. (Mac: `~/Library/Application Support/ApplyLocal`, Windows: `%APPDATA%\ApplyLocal`)
+
 ## 주요 기능
 
 ### 이력서 이해
@@ -96,9 +128,9 @@ PDF 이력서 ─▶ 규칙 파서 (+ 로컬 LLM 보조, 원문 근거 검사) �
 
 화면은 PySide6 네이티브 창입니다. 내부적으로는 `127.0.0.1`의 임의 포트와 실행마다 새로 만드는 토큰을 쓰는 로컬 FastAPI 프로세스를 통해 핵심 모듈을 호출합니다. 브라우저는 작업마다 새로 만드는 Chromium 프로필이며, 평소 쓰는 Chrome과는 분리되어 있습니다. 이 프로필은 작업이 끝나면 삭제됩니다.
 
-## 설치
+## 소스에서 설치 (개발용)
 
-Python 3.11 이상이 필요합니다.
+앱을 쓰기만 할 때는 위의 「다운로드 · 설치」를 따르세요. Python 3.11 이상이 필요합니다.
 
 ```bash
 python3.11 -m venv .venv
@@ -133,7 +165,7 @@ ollama pull qwen2.5:7b
 PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python -m unittest discover -s tests
 ```
 
-- 현재 **132개 테스트가 모두 통과**합니다.
+- 현재 **137개 테스트가 모두 통과**합니다.
 - 테스트는 실제 LLM이나 실제 채용 사이트에 접속하지 않습니다.
 - 브라우저 통합 테스트는 로컬 Chromium과 합성 HTML 양식으로 다음을 검사합니다.
   - 입력, 재확인, 재시도, 자동 제출 금지
@@ -160,11 +192,27 @@ PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/pyt
 .venv/bin/python evaluation/score_runs.py
 ```
 
+## 앱 빌드와 배포
+
+```bash
+.venv/bin/pip install "pyinstaller>=6.10,<7"
+.venv/bin/pyinstaller packaging/ApplyLocal.spec --noconfirm   # → dist/Apply Local.app
+```
+
+- 앱에는 Chromium을 넣지 않습니다. Playwright Chromium → 설치된 Chrome → Edge 순서로 찾아 씁니다.
+- 배포는 GitHub Actions가 합니다.
+  - 시험 빌드: Actions 탭 → 「Release」 → 「Run workflow」. Release는 만들지 않고, 실행 결과 화면의 Artifacts에서 zip을 받습니다.
+  - 정식 배포: `pyproject.toml`의 version을 올리고 같은 번호의 태그(`v<version>`)를 push하면 Mac·Windows 빌드가 Release에 올라갑니다.
+
 ## 프로젝트 구조
 
 ```text
-run_local.py                 로컬 API + 데스크톱 화면 실행
+run_local.py                 소스에서 실행 (데이터는 .job_agent/)
+packaging/                   PyInstaller 빌드 설정과 앱 시작 파일
+.github/workflows/release.yml  태그 push 시 Mac·Windows 앱 빌드 → Release
 src/job_agent_core/
+  launcher.py                로컬 API(백그라운드 스레드) + 데스크톱 화면 시작
+  app_paths.py               실행 데이터 폴더 (설치 앱은 OS 사용자 데이터 폴더)
   desktop.py                 PySide6 화면 (5단계 흐름, 결과 표, 「상세」 검토)
   api.py                     로컬 FastAPI 작업 API (토큰·루프백 전용)
   resume_parser.py           PDF 검사와 규칙 기반 이력서 항목 추출

@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Uplo
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .app_paths import default_data_dir
 from .browser_session import (
     BrowserLoginNotComplete,
     BrowserRedirectApprovalRequired,
@@ -140,7 +141,7 @@ class ApproveDomainRequest(BaseModel):
 
 # 환경변수로 설정을 만듭니다. 토큰이 없으면 서버를 시작하지 않습니다.
 def default_settings() -> ApiSettings:
-    data_dir = Path(os.environ.get("JOB_AGENT_DATA_DIR", ".job_agent"))
+    data_dir = default_data_dir()
     token = os.environ.get("JOB_AGENT_API_TOKEN")
     if not token:
         raise RuntimeError("로컬 API를 시작하기 전에 JOB_AGENT_API_TOKEN을 설정해야 합니다.")
