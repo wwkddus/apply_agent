@@ -1,0 +1,670 @@
+{
+  "schema": 1,
+  "variant": "after",
+  "site": "site-a",
+  "recorded_at": "2026-10-23T10:41:27",
+  "core_version": "0.3.0",
+  "resume": {
+    "pages": 2,
+    "text_chars": 459,
+    "present_paths": [
+      "education.graduate_school.admission_date",
+      "education.graduate_school.admission_type",
+      "education.graduate_school.campus_type",
+      "education.graduate_school.degree",
+      "education.graduate_school.gpa",
+      "education.graduate_school.gpa_scale",
+      "education.graduate_school.graduation_date",
+      "education.graduate_school.graduation_status",
+      "education.graduate_school.major",
+      "education.graduate_school.region",
+      "education.graduate_school.school_name",
+      "education.university.admission_date",
+      "education.university.admission_type",
+      "education.university.campus_type",
+      "education.university.gpa",
+      "education.university.gpa_scale",
+      "education.university.graduation_date",
+      "education.university.graduation_status",
+      "education.university.major",
+      "education.university.region",
+      "education.university.school_name",
+      "person.address",
+      "person.address_detail",
+      "person.birth_date",
+      "person.disability_status",
+      "person.email",
+      "person.military_status",
+      "person.name.family",
+      "person.name.full",
+      "person.name.given",
+      "person.name_en.family",
+      "person.name_en.full",
+      "person.name_en.given",
+      "person.phone",
+      "person.postal_code",
+      "person.veteran_status"
+    ]
+  },
+  "pages": [
+    {
+      "page_index": 1,
+      "field_count": 61,
+      "submit_control_count": 0,
+      "inspect_ms": 46.4,
+      "fill_ms": null,
+      "fields": [
+        {
+          "page_index": 1,
+          "form_field": "al-f0-0",
+          "label": "이름 *",
+          "widget_kind": "text",
+          "predicted_path": "person.name.full",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-1",
+          "label": "생년월일",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "person.birth_date",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-2",
+          "label": "이메일주소 *",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "person.email",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-3",
+          "label": "연락처 *",
+          "widget_kind": "text",
+          "predicted_path": "person.phone",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-4",
+          "label": "병역사항 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-5",
+          "label": "졸업구분 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-6",
+          "label": "학교명 *",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-7",
+          "label": "계열 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-8",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-9",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-10",
+          "label": "학교명 *",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "education.university.school_name",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-11",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "education.university.admission_date",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-12",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "education.university.graduation_date",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-13",
+          "label": "졸업구분 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "education.university.graduation_status",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-14",
+          "label": "평점 *",
+          "widget_kind": "text",
+          "predicted_path": "education.university.gpa",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-15",
+          "label": "평점 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "education.university.gpa_scale",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-16",
+          "label": "educationalBackground.universities.0.majors.0.majorClassification",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-17",
+          "label": "educationalBackground.universities.0.majors.0.majorField",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-18",
+          "label": "전공",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "education.university.major",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-19",
+          "label": "학위구분 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "education.graduate_school.degree",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-20",
+          "label": "학교명 *",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "education.graduate_school.school_name",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-21",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "education.graduate_school.admission_date",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-22",
+          "label": "재학기간 *",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "education.graduate_school.graduation_date",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-23",
+          "label": "졸업구분 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "education.graduate_school.graduation_status",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-24",
+          "label": "평점 *",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.gpa",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-25",
+          "label": "평점 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "education.graduate_school.gpa_scale",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-26",
+          "label": "educationalBackground.graduateSchools.0.majors.0.majorClassification",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-27",
+          "label": "educationalBackground.graduateSchools.0.majors.0.majorField",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-28",
+          "label": "전공",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "education.graduate_school.major",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-29",
+          "label": "고용형태 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-30",
+          "label": "회사명 *",
+          "widget_kind": "custom_combobox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-31",
+          "label": "workHistory.workExperiences.0.employmentPeriod.startDate",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-32",
+          "label": "workHistory.workExperiences.0.employmentPeriod.endDate",
+          "widget_kind": "custom_date_picker",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-33",
+          "label": "재직 중",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-34",
+          "label": "부서 *",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-35",
+          "label": "직급 *",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-36",
+          "label": "담당업무 *",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-37",
+          "label": "이력서 (PDF 혹은 링크)",
+          "widget_kind": "file",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-38",
+          "label": "성적증명서 (PDF) *",
+          "widget_kind": "file",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-39",
+          "label": "기타 영입에 참고할 수 있는 자료",
+          "widget_kind": "file",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-40",
+          "label": "지원경로 *",
+          "widget_kind": "custom_select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-41",
+          "label": "지원 경로가 라이드플럭스 임직원 추천일 경우, 추천자의 성함을 적어주세요:)",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-42",
+          "label": "1. 지원 동기 (최대 300자) *",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-43",
+          "label": "2. 성격의 장/단점 (최대 300자) *",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-44",
+          "label": "3. 프로젝트/과제/실습 수행 중 가장 도전적이었던 경험 및 해결 과정 (최대 500자) *",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-45",
+          "label": "4. 프로젝트/조별 과제/조별 실습 수행 중 팀원과의 협업 경험 (최대 500자) *",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-46",
+          "label": "2. 재직 중인 특수관계인이 있는 경우, 아래 내용을 기입해주세요.",
+          "widget_kind": "textarea",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-47",
+          "label": "전체 동의",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-48",
+          "label": "개인정보 필수항목 수집 및 이용 동의 (필수)",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-49",
+          "label": "개인정보 선택항목 수집 및 이용 동의 (선택)",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-50",
+          "label": "민감정보 수집 및 이용 동의 (필수)",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-51",
+          "label": "개인정보 제3자 이용제공 동의 (선택)",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-52",
+          "label": "1. 현재 라이드플럭스에 재직 중인 특수관계인이 있나요? *",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-53",
+          "label": "장애여부",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "person.disability_status",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-54",
+          "label": "학위구분 *",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "education.university.degree",
+          "decision_status": "missing_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-55",
+          "label": "입학구분 *",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "education.university.admission_type",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-56",
+          "label": "주/야간 구분 *",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-57",
+          "label": "입학구분 *",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "education.graduate_school.admission_type",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-58",
+          "label": "주/야간 구분 *",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-59",
+          "label": "이력서 (PDF 혹은 링크)",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-60",
+          "label": "기타 영입에 참고할 수 있는 자료",
+          "widget_kind": "aria_radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        }
+      ]
+    }
+  ]
+}

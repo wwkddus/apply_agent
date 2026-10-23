@@ -133,6 +133,7 @@ def field_structure(fields, mappings) -> list[dict[str, object]]:
                 "group_labels": field.group_labels,
                 "name": field.name,
                 "element_id": field.element_id,
+                "context_names": field.context_names,
                 "type": field.type,
                 "widget_kind": field.widget_kind,
                 "required": field.required,
