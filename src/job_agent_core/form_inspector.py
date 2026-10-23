@@ -116,6 +116,21 @@ INSPECT_SCRIPT = r"""
     if (question) return question;
     return clean(element.getAttribute("placeholder") || element.getAttribute("name") || element.id);
   };
+  // A field without a name (e.g. a button group) reports the data-model names of the other fields in the
+  // nearest block that has any, so '입학구분' in a graduate-school block is not read as the university one.
+  // The mapper uses them only when they all point at the same education level.
+  const contextNames = (element) => {
+    if (clean(element.getAttribute("name"))) return [];
+    let node = element.parentElement;
+    for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      const names = Array.from(node.querySelectorAll("[name]"))
+        .filter((item) => item !== element && !element.contains(item))
+        .map((item) => clean(item.getAttribute("name")))
+        .filter((name) => /[._\[]|[a-z][A-Z]/.test(name));
+      if (names.length) return Array.from(new Set(names)).slice(0, 12);
+    }
+    return [];
+  };
   const sectionFor = (element) => {
     const fieldset = element.closest("fieldset");
     if (fieldset) {
@@ -178,6 +193,8 @@ INSPECT_SCRIPT = r"""
     if (tag === "button" && element.getAttribute("aria-haspopup") === "listbox") return "custom_select";
     if (tag === "button" && ["grid", "dialog"].includes(element.getAttribute("aria-haspopup"))) return "custom_date_picker";
     if (tag === "input" && (role === "combobox" || element.hasAttribute("aria-autocomplete") || element.hasAttribute("list"))) return "custom_combobox";
+    // jQuery UI autocomplete (e.g. SK school/major search) adds no ARIA role, only this class.
+    if (tag === "input" && element.classList.contains("ui-autocomplete-input")) return "custom_combobox";
     if (tag === "input" && element.readOnly && element.getAttribute("aria-haspopup") === "dialog") return "custom_date_picker";
     if (tag === "input") return "text";
     return "unsupported";
@@ -280,6 +297,7 @@ INSPECT_SCRIPT = r"""
       group_labels: groupLabelsFor(element),
       name: clean(element.getAttribute("name")) || null,
       element_id: clean(element.id) || null,
+      context_names: contextNames(element),
       current_value_present: selectedValuePresent(element, kind),
       readonly: Boolean(element.readOnly || element.getAttribute("aria-readonly") === "true"),
       options: kind === "select" ? optionData(element) : [],
@@ -345,6 +363,7 @@ INSPECT_SCRIPT = r"""
       group_labels: groupLabelsFor(group),
       name: clean(group.getAttribute("name") || group.getAttribute("data-name")) || null,
       element_id: clean(group.id) || null,
+      context_names: group.getAttribute("name") || group.getAttribute("data-name") ? [] : contextNames(group),
       current_value_present: radios.some((radio) => radio.getAttribute("aria-checked") === "true"),
       readonly: group.getAttribute("aria-readonly") === "true" || group.getAttribute("aria-disabled") === "true",
       options: radios.slice(0, 50).map((radio) => ({ value: clean(radio.innerText || radio.getAttribute("aria-label")), text: clean(radio.innerText || radio.getAttribute("aria-label")) })),

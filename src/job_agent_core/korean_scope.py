@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from .attribute_semantics import UNMAPPED, infer_from_attributes
+from .attribute_semantics import UNMAPPED, attribute_tokens, education_level_from_tokens, infer_from_attributes
 from .constants import ALLOWED_RESUME_PATHS, EDUCATION_FIELDS, EDUCATION_LEVELS
 from .mapping import FormField, INSTRUCTION_RE, MappingRecord, MappingResult
 from .models import PersonalInfo, ResumeProfile
@@ -83,6 +83,8 @@ _GENERIC_EDU_FIELDS = {"region", "campus_type"}
 # 'Graduate date' (졸업일) is not a graduate school; only explicit wordings name the level.
 _GRAD_RE = re.compile(r"대학원|graduate\s*(school|level|program)|postgraduate|master|석사|박사|doctor", re.I)
 _HIGHEST_RE = re.compile(r"최종\s*학력|highest\s*(level\s*of\s*)?education|last(est)?\s*education|final\s*education", re.I)
+# 논문·졸업작품은 '졸업'이 들어 있어도 졸업일이 아니며, 이력서에 없는 항목입니다(SK 실측).
+_NOT_RESUME_EDU_RE = re.compile(r"논문|졸업\s*(작품|과제|전시|프로젝트)|thesis|dissertation|capstone", re.I)
 _UNIV_RE = re.compile(r"대학교|대학|학부|undergraduate|bachelor|학사|university|college", re.I)
 
 
@@ -304,6 +306,9 @@ class KoreanMvpMapper:
                 return self._unmapped(field, hint.reason)
             return self._mapped(field, hint.resume_path, 0.95, hint.reason)
 
+        if _NOT_RESUME_EDU_RE.search(raw):
+            return self._unmapped(field, "fallback: 논문·졸업작품은 이력서 항목이 아님(졸업일 아님)")
+
         lowered = raw.casefold()
         context = f"{field.section} {field.label}"
         long_label = len(field.label.split()) > 8
@@ -323,6 +328,16 @@ class KoreanMvpMapper:
                 if _UNIV_RE.search(context)
                 else None
             )
+            # 라벨·영역에 단서가 없으면, 같은 블록 옆 칸들의 name(예: graduateSchools.0.completionStatus)이
+            # 모두 같은 학력을 가리킬 때만 그 학력으로 봅니다. 섞여 있으면(여러 블록) 판단하지 않습니다.
+            block = None
+            if level is None:
+                levels = {education_level_from_tokens(attribute_tokens(name)) for name in field.context_names} - {None}
+                block = levels.pop() if len(levels) == 1 else None
+            if block == "high_school":
+                return self._unmapped(field, "structure: 고등학교 학력 블록은 현재 이력서 범위가 아님")
+            if block:
+                level = block
             # The notebook defaults an unknown education level to university. Keep that
             # mapping, but let an explicit short education label enter the deterministic
             # baseline instead of making every sectionless real-site field non-actionable.
@@ -331,7 +346,7 @@ class KoreanMvpMapper:
                 field,
                 f"education.{level or 'university'}.{education}",
                 confidence,
-                f"fallback: education rule '{education}', level={'from section/label' if level else 'unknown → university (baseline correction)'}",
+                f"fallback: education rule '{education}', level={('from block neighbour' if block else 'from section/label') if level else 'unknown → university (baseline correction)'}",
             )
         if personal:
             return self._mapped(

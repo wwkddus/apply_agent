@@ -259,6 +259,53 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await page.locator("#agree").is_checked())
         self.assertEqual(await page.evaluate("window.submitted"), 0)
 
+    async def test_unnamed_button_group_follows_its_graduate_school_block(self):
+        await self.page.set_content(
+            """
+            <section><h2>학력사항</h2>
+              <div class="block">
+                <div role="group"><label>입학구분 *</label>
+                  <div role="radiogroup"><button type="button" role="radio" aria-checked="false">입학</button>
+                  <button type="button" role="radio" aria-checked="false">편입</button></div></div>
+                <div role="group"><label>학교명 *</label><input name="educationalBackground.universities.0.schoolName"></div>
+              </div>
+              <div class="block">
+                <div role="group"><label>입학구분 *</label>
+                  <div role="radiogroup"><button type="button" role="radio" aria-checked="false">입학</button>
+                  <button type="button" role="radio" aria-checked="false">편입</button></div></div>
+                <div role="group"><label>학교명 *</label><input name="educationalBackground.graduateSchools.0.schoolName"></div>
+                <div role="group"><label>대학원 논문&amp;졸업작품</label><input id="thesis"></div>
+              </div>
+            </section>
+            <script>
+              document.querySelectorAll('[role=radio]').forEach((radio) => radio.addEventListener('click', () => {
+                radio.parentElement.querySelectorAll('[role=radio]').forEach((item) => item.setAttribute('aria-checked', 'false'));
+                radio.setAttribute('aria-checked', 'true');
+              }));
+            </script>
+            """
+        )
+        profile = ResumeProfile.model_validate(
+            {
+                "education": [
+                    {"education_level": "university", "school_name": "예시대학교", "admission_type": "입학",
+                     "graduation_date": "2020-02"},
+                    {"education_level": "graduate_school", "school_name": "예시대학원", "admission_type": "편입",
+                     "graduation_date": "2022-02"},
+                ]
+            }
+        )
+        report = await self.worker.fill("task", profile)
+        by_path = {item.resume_path: item.status for item in report.results if item.resume_path}
+        self.assertEqual(by_path["education.university.admission_type"], "filled_verified")
+        self.assertEqual(by_path["education.graduate_school.admission_type"], "filled_verified")
+        blocks = self.page.locator(".block")
+        self.assertEqual(await blocks.nth(0).locator("[aria-checked=true]").all_inner_texts(), ["입학"])
+        self.assertEqual(await blocks.nth(1).locator("[aria-checked=true]").all_inner_texts(), ["편입"])
+        [thesis] = [item for item in report.results if item.label.startswith("대학원 논문")]
+        self.assertEqual(thesis.status, "user_only")
+        self.assertEqual(await self.page.locator("#thesis").input_value(), "")
+
     async def test_calendar_button_that_already_shows_a_date_is_kept(self):
         await self.page.set_content((Path(__file__).parent / "fixtures" / "aria_application_form.html").read_text(encoding="utf-8"))
         await self.page.evaluate(

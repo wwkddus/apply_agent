@@ -114,6 +114,7 @@ _PREFERENCE_RE = re.compile(
     r"available\s*(date|start)|expected\s*salary|previous\s*salary|current\s*salary|desired",
     re.I,
 )
+_THESIS_RE = re.compile(r"논문|졸업\s*(작품|과제|전시|프로젝트)|thesis|dissertation|capstone", re.I)
 _EMAIL_VALUE_RE = re.compile(r"\S+@\S+\.\S+")
 _PHONE_VALUE_RE = re.compile(r"^\+?[\d\s().-]{9,}$")
 
@@ -146,6 +147,8 @@ def user_only_reason(field: FormField) -> str | None:
         return "동의·파일 첨부는 사용자가 직접 처리합니다."
     if field.widget_kind == "textarea" or _OPEN_QUESTION_RE.search(f"{field.label} {field.name or ''}"):
         return "자기소개·지원동기 같은 서술형 문항은 Agent가 작성하지 않습니다."
+    if _THESIS_RE.search(f"{field.label} {field.name or ''}"):
+        return "논문·졸업작품은 이력서에 없는 항목이라 사용자가 직접 입력합니다."
     if _PREFERENCE_RE.search(f"{field.label} {field.name or ''}"):
         return "입사 가능일·희망 연봉처럼 이번 지원에 대한 본인의 선택 항목입니다."
     if _THIRD_PARTY_RE.search(context):

@@ -33,6 +33,8 @@ class FormField(BaseModel):
     group_labels: list[str] = Field(default_factory=list)
     name: str | None = None
     element_id: str | None = None
+    # name이 없는 칸(라디오 버튼 묶음 등)을 감싼 가장 가까운 블록 안 다른 칸들의 name. 학력 블록(대학/대학원) 판단용.
+    context_names: list[str] = Field(default_factory=list)
     current_value_present: bool = False
     readonly: bool = False
     options: list[FormOption] = Field(default_factory=list)

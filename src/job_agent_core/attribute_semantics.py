@@ -68,12 +68,17 @@ def _education_level(tokens: list[str]) -> str | None:
     return None
 
 
+education_level_from_tokens = _education_level
+
+
 # 학력 칸이 학교명·전공·학점·입학일 중 무엇인지 판단합니다.
 # '예/아니요'나 '전공 계열'처럼 이력서에 없는 항목은 일부러 연결하지 않습니다.
 def _education_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
     if _has(tokens, "yn"):
         return UNMAPPED, "예/아니요 선택(편입·복수전공 여부 등)은 사용자가 결정"
+    if _has(tokens, "thesis", "dissertation", "capstone"):
+        return UNMAPPED, "논문·졸업작품은 이력서 항목이 아님"
     if _has(tokens, "major", "majors"):
         if _has(tokens, "classification", "category", "field", "type", "affiliation", "series", "family"):
             return UNMAPPED, "전공 구분/계열은 이력서 항목이 아님"

@@ -1068,7 +1068,11 @@ class BrowserAutomationWorker:
     @staticmethod
     async def _wait_for_options(target: FieldTarget, timeout: float = 3.0) -> list[Locator]:
         """Wait for suggestions that may load asynchronously; stop once the list is stable."""
-        selector = '[role="option"]:visible, [role="listbox"] button:visible, [role="listbox"] li:visible'
+        # jQuery UI autocomplete lists (ul.ui-autocomplete > li.ui-menu-item) have no ARIA roles.
+        selector = (
+            '[role="option"]:visible, [role="listbox"] button:visible, [role="listbox"] li:visible, '
+            'ul.ui-autocomplete:visible li.ui-menu-item:visible'
+        )
         previous = -1
         options: list[Locator] = []
         deadline = asyncio.get_running_loop().time() + timeout

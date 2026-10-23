@@ -157,6 +157,42 @@ class SkLikeFormTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator("#eduLastestEducationType").input_value(), "")
 
 
+    async def test_jquery_ui_school_search_commits_a_listed_school(self):
+        # 실측(SK): 학교명·전공은 jQuery UI autocomplete. ARIA 역할 없이 class만 있고, 목록은 입력 뒤 서버에서 옵니다.
+        await self.page.set_content(
+            """
+            <div class="form-item"><label for="school" class="form-label">대학원 학교명</label>
+              <input type="text" id="school" name="edugdEducationName" class="form-input ui-autocomplete-input" autocomplete="off"></div>
+            <ul id="menu" class="ui-menu ui-widget ui-autocomplete" style="display:none"></ul>
+            <script>
+              const input = document.getElementById('school');
+              const menu = document.getElementById('menu');
+              const schools = ['한국대학교 대학원', '한국대학교 교육대학원', '서울대학교 대학원'];
+              window.picked = 0;
+              input.addEventListener('input', () => setTimeout(() => {
+                menu.innerHTML = '';
+                for (const name of schools.filter((item) => item.includes(input.value.slice(0, 2)))) {
+                  const li = document.createElement('li');
+                  li.className = 'ui-menu-item';
+                  li.innerHTML = '<div class="ui-menu-item-wrapper"></div>';
+                  li.firstChild.textContent = name;
+                  li.addEventListener('click', () => { input.value = name; menu.style.display = 'none'; window.picked += 1; });
+                  menu.appendChild(li);
+                }
+                menu.style.display = menu.children.length ? 'block' : 'none';
+              }, 400));
+            </script>
+            """
+        )
+        profile = ResumeProfile(education=[EducationRecord(education_level="graduate_school", school_name="한국대학교 대학원")])
+        report = await self.worker.fill("task", profile)
+        [row] = [item for item in report.results if item.resume_path == "education.graduate_school.school_name"]
+        self.assertEqual(row.status, "filled_verified", row.reason)
+        self.assertEqual(await self.page.locator("#school").input_value(), "한국대학교 대학원")
+        # Chosen from the list (the site's select handler ran), not just typed.
+        self.assertEqual(await self.page.evaluate("window.picked"), 1)
+
+
 class SensitiveStatusParsingTests(unittest.TestCase):
     def test_status_labels_by_keyword(self):
         profile = extract_resume_profile("이름 홍길동\n병역 비대상\n장애 비대상\n보훈여부: 해당없음\n")["resume_profile"].personal
