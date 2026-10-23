@@ -174,17 +174,36 @@ class DesktopWindowTests(unittest.TestCase):
         self.window.failed_last = True
         self.assertEqual(self.window.tray_state(), "error")
 
-    def test_every_menu_bar_frame_is_packaged_and_keeps_its_wide_shape(self):
-        from job_agent_core.tray import FRAMES, ICON_DIR, WIN_ICON_DIR, render_icon
+    def test_every_clover_frame_is_packaged_and_square(self):
+        from job_agent_core.tray import ICON_DIR, STATES, STYLES, frames, palette, render_icon
 
-        for name in {frame for frames in FRAMES.values() for frame in frames}:
-            self.assertTrue((ICON_DIR / f"{name}.svg").is_file(), name)
-            self.assertTrue((WIN_ICON_DIR / f"{name}.svg").is_file(), name)
-        square = render_icon("idle", mask=False, color="#ffffff", square=True).availableSizes()
-        self.assertTrue(all(size.width() == size.height() for size in square))
-        sizes = render_icon("applying_0", mask=True).availableSizes()
-        self.assertEqual(sorted(size.height() for size in sizes), [18, 36])
-        self.assertTrue(all(size.width() > size.height() for size in sizes))
+        for style in STYLES:
+            colors = palette(style)
+            for state in STATES:
+                for name, role in frames(state, style):
+                    self.assertTrue((ICON_DIR / f"{name}.svg").is_file(), name)
+                    self.assertIn(role, colors)
+        sizes = render_icon("clover", "#4cbb2b").availableSizes()
+        self.assertTrue({18, 36, 16, 24}.issubset({size.height() for size in sizes}))
+        self.assertTrue(all(size.width() == size.height() for size in sizes))
+
+    def test_clover_states_blink_until_confirmed_and_flash_once_on_success(self):
+        from job_agent_core.tray import PLAY_ONCE, frames, palette
+
+        # 확인 필요·조작 대기는 같은 ! 그림이 반복(사용자가 확인할 때까지), 완료는 한 번만 반짝이고 기본색으로 멈춤.
+        self.assertEqual(frames("waiting", "green"), frames("attention", "green"))
+        self.assertNotIn("attention", PLAY_ONCE)
+        # 깜빡임은 ! 를 그대로 두고 색만 바꿉니다(초록 ↔ 금색, 흑백은 진하게 ↔ 흐리게).
+        self.assertEqual(set(frames("attention", "green")), {("notice", "gold"), ("notice", "base")})
+        self.assertEqual(set(frames("attention", "mono")), {("notice", "base"), ("notice", "dim")})
+        self.assertIn(("clover", "gold"), frames("success", "green"))
+        self.assertEqual(frames("success", "green")[-1], ("clover", "base"))
+        self.assertIn("success", PLAY_ONCE)
+        # 흑백은 금색·회색 없이 한 색이고, 반짝임은 흐리게.
+        mono = palette("mono", dark_taskbar=True)
+        self.assertEqual({color for color, _ in mono.values()}, {"#ffffff"})
+        self.assertLess(mono["dim"][1], 1)
+        self.assertEqual(frames("error", "green"), [("error", "grey")])
 
     def test_header_has_native_style_close_and_minimize_buttons(self):
         from job_agent_core.desktop import WindowButton
@@ -195,6 +214,17 @@ class DesktopWindowTests(unittest.TestCase):
         self.window.show()
         self.window.close_button.click()
         self.assertFalse(self.window.isVisible())
+
+    def test_system_notification_only_when_the_window_is_out_of_sight(self):
+        from job_agent_core.tray import NOTICES, should_notify
+
+        self.window.show()
+        self.assertFalse(should_notify("attention", self.window))
+        self.window.hide()
+        self.assertTrue(should_notify("attention", self.window))
+        self.assertFalse(should_notify("applying", self.window))
+        self.assertFalse(should_notify("idle", self.window))
+        self.assertEqual(set(NOTICES), {"waiting", "attention", "success", "error"})
 
     def test_collapse_hides_everything_but_the_header(self):
         self.window._toggle_expanded()
