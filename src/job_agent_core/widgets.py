@@ -103,6 +103,27 @@ OPTION_SYNONYMS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("입학", "신입학", "정시", "수시", "regular", "freshman"),
         ("편입", "편입학", "transfer"),
     ),
+    # 학교 소재지(실측: SK는 영어 선택지 'Seoul'). 도를 시보다 앞에 둡니다: '경기 광주'는 경기도입니다.
+    "region": (
+        ("경기", "경기도", "gyeonggi", "gyeonggi-do", "gyeonggido", "kyonggi", "kyonggi-do"),
+        ("강원", "강원도", "강원특별자치도", "gangwon", "gangwon-do", "gangwondo", "kangwon", "kangwon-do"),
+        ("충북", "충청북도", "chungbuk", "chungcheongbuk-do", "chungcheongbukdo", "northchungcheong", "chungcheongnorth"),
+        ("충남", "충청남도", "chungnam", "chungcheongnam-do", "chungcheongnamdo", "southchungcheong", "chungcheongsouth"),
+        ("전북", "전라북도", "전북특별자치도", "jeonbuk", "jeollabuk-do", "jeollabukdo", "northjeolla", "jeollanorth"),
+        ("전남", "전라남도", "jeonnam", "jeollanam-do", "jeollanamdo", "southjeolla", "jeollasouth"),
+        ("경북", "경상북도", "gyeongbuk", "gyeongsangbuk-do", "gyeongsangbukdo", "northgyeongsang", "gyeongsangnorth"),
+        ("경남", "경상남도", "gyeongnam", "gyeongsangnam-do", "gyeongsangnamdo", "southgyeongsang", "gyeongsangsouth"),
+        ("제주", "제주도", "제주특별자치도", "jeju", "jeju-do", "jejudo", "cheju"),
+        ("서울", "서울시", "서울특별시", "seoul"),
+        ("부산", "부산시", "부산광역시", "busan", "pusan"),
+        ("대구", "대구시", "대구광역시", "daegu", "taegu"),
+        ("인천", "인천시", "인천광역시", "incheon", "inchon"),
+        ("광주", "광주시", "광주광역시", "gwangju", "kwangju"),
+        ("대전", "대전시", "대전광역시", "daejeon", "taejon"),
+        ("울산", "울산시", "울산광역시", "ulsan"),
+        ("세종", "세종시", "세종특별자치시", "sejong"),
+        ("해외", "국외", "overseas", "abroad", "foreign"),
+    ),
 }
 
 
@@ -120,10 +141,13 @@ def _equivalents(path: str | None, value: str) -> set[str]:
     for group in groups:
         if target in {_norm_option(item) for item in group}:
             return {_norm_option(item) for item in group}
-    if field.endswith("_status") and field != "graduation_status":
-        # '육군 만기전역' -> 군필: the longest known wording inside the resume text decides.
+    if (field.endswith("_status") and field != "graduation_status") or field == "region":
+        # '육군 만기전역' -> 군필, '서울특별시 종로구' -> 서울: the longest known wording inside the resume text decides.
         hits = [(len(_norm_option(item)), group) for group in groups for item in group
                 if len(_norm_option(item)) >= 2 and _norm_option(item) in target]
+        if field == "region":
+            # An address starts with its top-level region: '경기 광주시' is Gyeonggi, not Gwangju city.
+            hits = [(size, group) for size, group in hits if any(target.startswith(_norm_option(item)) for item in group)]
         if hits:
             return {_norm_option(item) for item in max(hits, key=lambda hit: hit[0])[1]}
     return {target}

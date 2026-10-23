@@ -3,6 +3,8 @@ import unittest
 from job_agent_core.mapping import FormField, FormOption
 from job_agent_core.widgets import (
     detect_text_date_format,
+    match_option,
+    pick_option,
     plan_widget_action,
     repair_text_value,
 )
@@ -174,6 +176,41 @@ class WidgetPlanningTests(unittest.TestCase):
         tail = plan_widget_action(FormField(key="p3", widget_kind="text", maxlength=4), "person.phone", "010-1234-5678", "3/3")
         self.assertEqual((head.action, head.value), ("select_option", "010"))
         self.assertEqual((tail.action, tail.value), ("fill", "5678"))
+
+
+class RegionOptionTests(unittest.TestCase):
+    # 실측(SK): 학교 소재지 선택지가 영어(Seoul, Gyeonggi-do...)라 이력서의 '서울'과 맞지 않던 문제.
+    PATH = "education.graduate_school.region"
+    ENGLISH = ["Select", "Seoul", "Busan", "Gyeonggi-do", "Gangwon-do", "Gwangju", "Jeju-do", "Overseas"]
+
+    def test_korean_resume_region_picks_the_english_option(self):
+        for value, expected in (
+            ("서울", "Seoul"),
+            ("서울특별시", "Seoul"),
+            ("경기도", "Gyeonggi-do"),
+            ("강원특별자치도", "Gangwon-do"),
+            ("제주", "Jeju-do"),
+            ("해외", "Overseas"),
+        ):
+            index, _ = pick_option(self.ENGLISH, value, self.PATH)
+            self.assertEqual(self.ENGLISH[index] if index is not None else None, expected, value)
+
+    def test_longer_address_uses_the_province_or_city_inside_it(self):
+        for value, expected in (("서울특별시 종로구", "Seoul"), ("경기 광주시", "Gyeonggi-do"), ("광주광역시 북구", "Gwangju")):
+            index, _ = pick_option(self.ENGLISH, value, self.PATH)
+            self.assertEqual(self.ENGLISH[index] if index is not None else None, expected, value)
+
+    def test_english_resume_region_picks_the_korean_option(self):
+        korean = ["선택", "서울특별시", "경기도", "부산광역시"]
+        index, _ = pick_option(korean, "Seoul", self.PATH)
+        self.assertEqual(korean[index], "서울특별시")
+        option = match_option([FormOption(value="", text="선택"), FormOption(value="11", text="서울"), FormOption(value="41", text="경기")],
+                              "Gyeonggi-do", self.PATH)
+        self.assertEqual(option.value, "41")
+
+    def test_unknown_region_is_not_guessed(self):
+        index, _ = pick_option(self.ENGLISH, "도쿄", self.PATH)
+        self.assertIsNone(index)
 
 
 if __name__ == "__main__":
