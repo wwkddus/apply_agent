@@ -30,12 +30,20 @@ Apply Local은 PDF 이력서를 읽어 한국 채용 사이트의 지원서 양�
 1. zip을 풀고 `Apply Local` 폴더 안의 `Apply Local.exe`를 실행합니다. 폴더 안의 다른 파일은 지우지 마세요.
 2. 「Windows의 PC 보호」 창이 뜨면 **「추가 정보」 → 「실행」**을 누릅니다.
 
-### AI 보조 기능 (선택)
-Ollama 없이도 규칙 기반 입력은 모두 동작합니다. 처음 보는 지원서 칸 연결(AI 칸 연결), 표 형식이 아닌 이력서 읽기, 2차 확인까지 쓰려면 [Ollama](https://ollama.com/download)를 설치한 뒤 터미널에서 모델을 받습니다(각 약 5GB).
-```bash
-ollama pull qwen3:8b     # AI 칸 연결
-ollama pull qwen2.5:7b   # 이력서 보조 추출·2차 확인
-```
+### AI 보조 기능 (처음 실행할 때 설정)
+처음 실행하면 AI 보조 기능 설정 화면이 먼저 나옵니다. 이 컴퓨터에서만 실행되는 AI([Ollama](https://ollama.com))가 처음 보는 지원서 칸을 이해하고, 규칙으로 못 채운 항목을 이력서 원문과 한 번 더 확인합니다. 이력서와 개인정보는 외부로 보내지 않습니다.
+
+- **설치하고 사용 (권장)**: 이 컴퓨터에 Ollama가 있는지 확인하고, 없으면 ollama.com에서 공식 설치 파일을 받아 **서명을 확인한 뒤** 설치하고, 필요한 AI 모델 2개(약 9.9GB)를 받습니다. 이미 설치된 단계는 건너뜁니다.
+  - 받는 양: Mac 약 0.2GB + 모델 9.9GB, Windows 약 1.7GB + 모델 9.9GB. 인터넷 속도에 따라 수십 분 걸립니다. 「기다리지 않고 계속」을 누르면 설치는 뒤에서 이어지고, 그동안 규칙으로 입력할 수 있습니다.
+  - 필요 조건: Mac은 macOS 14(Sonoma) 이상. 메모리 16GB 이상을 권장합니다(8GB면 느릴 수 있음).
+  - Windows에서는 Ollama 자체 설치 창이 한 번 뜹니다. 관리자 권한은 필요 없습니다.
+- **AI 없이 사용**: 규칙만으로 입력합니다. 규칙 기반 입력은 모두 그대로 동작합니다.
+- 나중에 바꾸려면: 머리 줄 오른쪽 클릭 또는 메뉴 막대 아이콘의 **「AI 기능 설정…」**.
+
+직접 설치하고 싶다면 [Ollama](https://ollama.com/download)를 설치한 뒤 `ollama pull qwen3:8b`, `ollama pull qwen2.5:7b`를 실행하면 됩니다.
+
+### 이력서 템플릿
+앱 첫 화면의 **「템플릿 열기」**(또는 메뉴의 「이력서 템플릿 열기」)를 누르면 브라우저에서 템플릿이 열립니다. 오른쪽 값을 눌러 자기 내용으로 고친 뒤 **「PDF로 저장」**을 누르고, 그 PDF를 앱에 올리면 됩니다. 고친 내용은 그 브라우저에만 저장됩니다. 템플릿 파일: [`src/job_agent_core/assets/resume_template.html`](src/job_agent_core/assets/resume_template.html)
 
 이력서와 실행 기록은 내 컴퓨터에만 저장됩니다. (Mac: `~/Library/Application Support/ApplyLocal`, Windows: `%APPDATA%\ApplyLocal`)
 
@@ -140,7 +148,7 @@ python3.11 -m venv .venv
 .venv/bin/python -m playwright install chromium
 ```
 
-로컬 LLM 보조 기능을 쓰려면 Ollama를 설치하고 모델을 받습니다. Ollama가 없어도 규칙 기반 기능은 그대로 동작합니다.
+로컬 LLM 보조 기능은 앱의 「AI 기능 설정」에서 설치할 수 있고, 직접 설치해도 됩니다. Ollama가 없어도 규칙 기반 기능은 그대로 동작합니다.
 
 ```bash
 brew install ollama && brew services start ollama
@@ -228,6 +236,8 @@ src/job_agent_core/
   api.py                     로컬 FastAPI 작업 API (토큰·루프백 전용)
   resume_parser.py           PDF 검사와 규칙 기반 이력서 항목 추출
   resume_llm.py              로컬 Ollama 이력서 보조 추출 (원문 근거 검사)
+  ollama_setup.py            AI 기능 준비: Ollama 확인·서명 확인 후 설치·실행·모델 받기
+  assets/resume_template.html  이력서 템플릿 (브라우저에서 고쳐 PDF로 저장)
   resume_lookup.py           규칙으로 못 채운 필드의 2차 확인 (근거 문장·값 종류 검사)
   models.py, names.py        이력서·이름 모델, 한글/영문 이름 분리 규칙
   form_inspector.py          브라우저 DOM 필드 검사 (라벨 복구, 숨김 라디오, fingerprint)

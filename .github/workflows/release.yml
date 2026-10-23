@@ -36,7 +36,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONPATH: src
-        run: python -m unittest tests.test_packaging tests.test_security tests.test_resume_parser tests.test_mapping_and_planning
+        run: python -m unittest tests.test_packaging tests.test_security tests.test_resume_parser tests.test_mapping_and_planning tests.test_ollama_setup
 
       - name: Build
         run: pyinstaller packaging/ApplyLocal.spec --noconfirm

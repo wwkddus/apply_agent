@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>이력서 템플릿</title>
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  body { font-family: "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif; color: #111; font-size: 10.5pt; }
+  h1 { text-align: center; font-size: 20pt; margin: 0 0 6mm; }
+  .guide { border: 1px solid #c9dff0; background: #f4f9fd; padding: 3mm 4mm; margin-bottom: 5mm; font-size: 9pt; line-height: 1.55; color: #333; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 4mm; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #dcdcdc; padding: 1.6mm 2.4mm; text-align: left; vertical-align: top; }
+  th.section { background: #d9e8f5; font-weight: 700; font-size: 10.5pt; }
+  td.label { width: 34%; background: #f3f4f6; font-weight: 700; }
+  td.value { width: 66%; }
+  td.value[contenteditable]:hover { background: #fffbe6; }
+  td.value[contenteditable]:focus { outline: 2px solid #111; outline-offset: -2px; background: #fffbe6; }
+  .toolbar { position: sticky; top: 0; display: flex; gap: 8px; align-items: center; background: #111; color: #fff;
+             padding: 8px 12px; margin: -8px -8px 6mm; border-radius: 0 0 8px 8px; font-size: 10pt; }
+  .toolbar span { flex: 1; }
+  .toolbar button { font: inherit; border: 1px solid #fff; border-radius: 14px; padding: 4px 14px; cursor: pointer; }
+  .toolbar .primary { background: #fff; color: #111; font-weight: 700; }
+  .toolbar .plain { background: transparent; color: #fff; }
+  @media print { .toolbar { display: none; } td.value { background: none !important; } }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span>오른쪽 값을 눌러 고친 뒤 「PDF로 저장」을 누르세요(인쇄 창에서 대상: PDF로 저장). 고친 내용은 이 브라우저에만 저장됩니다.</span>
+  <button class="plain" id="reset" type="button">예시로 되돌리기</button>
+  <button class="primary" id="print" type="button">PDF로 저장</button>
+</div>
+<h1>이력서</h1>
+<div class="guide">
+  작성 안내 · 왼쪽 항목 이름은 바꾸지 말고 오른쪽 값만 고쳐 주세요. 해당 없는 항목은 값을 비워 두면 됩니다.<br>
+  날짜는 2025-02 / 2001-01-01 처럼, 전화번호는 010-1234-5678 처럼 적어 주세요.
+  자격증·어학은 번호(1, 2, 3)를 붙여 한 건씩 적고, 더 있으면 같은 형식으로 이어서 적어 주세요.<br>
+  편입했다면 「편입 전 대학교」에 처음 다닌 학교(전문대 포함)를, 「대학교」에 편입한 학교를 적고 대학교의 입학구분을 「편입」으로 적어 주세요. 편입하지 않았다면 「편입 전 대학교」는 비워 두세요.
+</div>
+
+<table>
+  <tr><th class="section" colspan="2">인적사항</th></tr>
+  <tr><td class="label">이름</td><td class="value">홍길동</td></tr>
+  <tr><td class="label">영문 성</td><td class="value">Hong</td></tr>
+  <tr><td class="label">영문 이름</td><td class="value">Gildong</td></tr>
+  <tr><td class="label">한자 이름</td><td class="value">洪吉童</td></tr>
+  <tr><td class="label">생년월일</td><td class="value">2001-01-01</td></tr>
+  <tr><td class="label">성별</td><td class="value">남</td></tr>
+  <tr><td class="label">국적</td><td class="value">대한민국</td></tr>
+  <tr><td class="label">휴대전화번호</td><td class="value">010-1234-5678</td></tr>
+  <tr><td class="label">이메일</td><td class="value">honggildong@example.com</td></tr>
+  <tr><td class="label">보조 이메일</td><td class="value">gildong.hong@example.com</td></tr>
+  <tr><td class="label">우편번호</td><td class="value">17023</td></tr>
+  <tr><td class="label">주소</td><td class="value">경기 용인시 처인구 포곡읍 에버랜드로 199</td></tr>
+  <tr><td class="label">상세주소</td><td class="value">판다월드</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">병역 · 보훈 · 장애</th></tr>
+  <tr><td class="label">병역사항</td><td class="value">군필</td></tr>
+  <tr><td class="label">군별</td><td class="value">육군</td></tr>
+  <tr><td class="label">계급</td><td class="value">병장</td></tr>
+  <tr><td class="label">병과</td><td class="value">보병</td></tr>
+  <tr><td class="label">입대년월</td><td class="value">2021-05</td></tr>
+  <tr><td class="label">전역년월</td><td class="value">2022-11</td></tr>
+  <tr><td class="label">전역구분</td><td class="value">만기전역</td></tr>
+  <tr><td class="label">면제사유</td><td class="value"></td></tr>
+  <tr><td class="label">보훈정보</td><td class="value">비대상</td></tr>
+  <tr><td class="label">장애여부</td><td class="value">비대상</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">고등학교</th></tr>
+  <tr><td class="label">학교명</td><td class="value">서울고등학교</td></tr>
+  <tr><td class="label">소재지</td><td class="value">서울특별시</td></tr>
+  <tr><td class="label">계열</td><td class="value">이과</td></tr>
+  <tr><td class="label">졸업구분</td><td class="value">졸업</td></tr>
+  <tr><td class="label">졸업년월</td><td class="value">2020-02</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">편입 전 대학교</th></tr>
+  <tr><td class="label">학교명</td><td class="value"></td></tr>
+  <tr><td class="label">소재지</td><td class="value"></td></tr>
+  <tr><td class="label">학위</td><td class="value"></td></tr>
+  <tr><td class="label">전공명</td><td class="value"></td></tr>
+  <tr><td class="label">입학년월</td><td class="value"></td></tr>
+  <tr><td class="label">졸업구분</td><td class="value"></td></tr>
+  <tr><td class="label">졸업년월</td><td class="value"></td></tr>
+  <tr><td class="label">전체평점</td><td class="value"></td></tr>
+  <tr><td class="label">만점기준</td><td class="value"></td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">대학교</th></tr>
+  <tr><td class="label">학교명</td><td class="value">서울대학교</td></tr>
+  <tr><td class="label">본교/분교 구분</td><td class="value">본교</td></tr>
+  <tr><td class="label">주/야간</td><td class="value">주간</td></tr>
+  <tr><td class="label">소재지</td><td class="value">서울특별시</td></tr>
+  <tr><td class="label">학위</td><td class="value">학사</td></tr>
+  <tr><td class="label">전공계열</td><td class="value">공학계열</td></tr>
+  <tr><td class="label">전공명</td><td class="value">컴퓨터공학과</td></tr>
+  <tr><td class="label">복수전공</td><td class="value">경영학과</td></tr>
+  <tr><td class="label">부전공</td><td class="value"></td></tr>
+  <tr><td class="label">입학구분</td><td class="value">입학</td></tr>
+  <tr><td class="label">입학년월</td><td class="value">2020-03</td></tr>
+  <tr><td class="label">졸업구분</td><td class="value">졸업</td></tr>
+  <tr><td class="label">졸업년월</td><td class="value">2025-02</td></tr>
+  <tr><td class="label">전체평점</td><td class="value">3.7</td></tr>
+  <tr><td class="label">만점기준</td><td class="value">4.5</td></tr>
+  <tr><td class="label">전공평점</td><td class="value">3.9</td></tr>
+  <tr><td class="label">이수학점</td><td class="value">140</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">대학원</th></tr>
+  <tr><td class="label">학교명</td><td class="value">서울대학교 대학원</td></tr>
+  <tr><td class="label">본교/분교 구분</td><td class="value">본교</td></tr>
+  <tr><td class="label">주/야간</td><td class="value">주간</td></tr>
+  <tr><td class="label">소재지</td><td class="value">서울특별시</td></tr>
+  <tr><td class="label">학위</td><td class="value">석사</td></tr>
+  <tr><td class="label">전공계열</td><td class="value">공학계열</td></tr>
+  <tr><td class="label">전공명</td><td class="value">컴퓨터공학과</td></tr>
+  <tr><td class="label">입학구분</td><td class="value">입학</td></tr>
+  <tr><td class="label">입학년월</td><td class="value">2025-03</td></tr>
+  <tr><td class="label">졸업구분</td><td class="value">재학</td></tr>
+  <tr><td class="label">졸업년월</td><td class="value">2027-02</td></tr>
+  <tr><td class="label">전체평점</td><td class="value">4.3</td></tr>
+  <tr><td class="label">만점기준</td><td class="value">4.5</td></tr>
+  <tr><td class="label">논문 제목</td><td class="value">대규모 언어 모델을 활용한 웹 양식 자동 입력 연구</td></tr>
+  <tr><td class="label">지도교수</td><td class="value">김교수</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">자격증 1</th></tr>
+  <tr><td class="label">자격증명</td><td class="value">정보처리기사</td></tr>
+  <tr><td class="label">발행기관</td><td class="value">한국산업인력공단</td></tr>
+  <tr><td class="label">취득일</td><td class="value">2024-06-14</td></tr>
+  <tr><td class="label">자격번호</td><td class="value">24201234567A</td></tr>
+  <tr><th class="section" colspan="2">자격증 2</th></tr>
+  <tr><td class="label">자격증명</td><td class="value">SQL 개발자(SQLD)</td></tr>
+  <tr><td class="label">발행기관</td><td class="value">한국데이터산업진흥원</td></tr>
+  <tr><td class="label">취득일</td><td class="value">2023-12-22</td></tr>
+  <tr><td class="label">자격번호</td><td class="value">SQLD-051001234</td></tr>
+  <tr><th class="section" colspan="2">자격증 3</th></tr>
+  <tr><td class="label">자격증명</td><td class="value">컴퓨터활용능력 1급</td></tr>
+  <tr><td class="label">발행기관</td><td class="value">대한상공회의소</td></tr>
+  <tr><td class="label">취득일</td><td class="value">2021-03-05</td></tr>
+  <tr><td class="label">자격번호</td><td class="value">21-K9-012345</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">어학시험 1</th></tr>
+  <tr><td class="label">언어</td><td class="value">영어</td></tr>
+  <tr><td class="label">시험명</td><td class="value">TOEIC</td></tr>
+  <tr><td class="label">점수/등급</td><td class="value">905</td></tr>
+  <tr><td class="label">응시일</td><td class="value">2024-08-25</td></tr>
+  <tr><td class="label">만료일</td><td class="value">2026-08-25</td></tr>
+  <tr><td class="label">등록번호</td><td class="value">123456789</td></tr>
+  <tr><th class="section" colspan="2">어학시험 2</th></tr>
+  <tr><td class="label">언어</td><td class="value">영어</td></tr>
+  <tr><td class="label">시험명</td><td class="value">OPIc</td></tr>
+  <tr><td class="label">점수/등급</td><td class="value">IH</td></tr>
+  <tr><td class="label">응시일</td><td class="value">2024-11-09</td></tr>
+  <tr><td class="label">만료일</td><td class="value">2026-11-09</td></tr>
+  <tr><td class="label">등록번호</td><td class="value">OPIC-2411-0042</td></tr>
+  <tr><th class="section" colspan="2">어학시험 3</th></tr>
+  <tr><td class="label">언어</td><td class="value">일본어</td></tr>
+  <tr><td class="label">시험명</td><td class="value">JLPT</td></tr>
+  <tr><td class="label">점수/등급</td><td class="value">N2</td></tr>
+  <tr><td class="label">응시일</td><td class="value">2023-12-03</td></tr>
+  <tr><td class="label">만료일</td><td class="value"></td></tr>
+  <tr><td class="label">등록번호</td><td class="value"></td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">외국어 능력 1</th></tr>
+  <tr><td class="label">언어</td><td class="value">영어</td></tr>
+  <tr><td class="label">회화 수준</td><td class="value">상</td></tr>
+  <tr><td class="label">작문 수준</td><td class="value">중</td></tr>
+  <tr><td class="label">독해 수준</td><td class="value">상</td></tr>
+  <tr><th class="section" colspan="2">외국어 능력 2</th></tr>
+  <tr><td class="label">언어</td><td class="value">일본어</td></tr>
+  <tr><td class="label">회화 수준</td><td class="value">중</td></tr>
+  <tr><td class="label">작문 수준</td><td class="value">하</td></tr>
+  <tr><td class="label">독해 수준</td><td class="value">중</td></tr>
+</table>
+
+<table>
+  <tr><th class="section" colspan="2">기타</th></tr>
+  <tr><td class="label">보유기술</td><td class="value">Python, SQL, Playwright, Git</td></tr>
+</table>
+<script>
+  // 값 칸만 고칠 수 있게 하고, 고친 내용은 이 브라우저(localStorage)에만 저장합니다. 외부로 보내지 않습니다.
+  (function () {
+    var KEY = "applylocal-resume-template-v1";
+    var cells = Array.prototype.slice.call(document.querySelectorAll("td.value"));
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (error) { saved = null; }
+    cells.forEach(function (cell, index) {
+      cell.setAttribute("contenteditable", "plaintext-only");
+      if (cell.contentEditable !== "plaintext-only") { cell.setAttribute("contenteditable", "true"); }
+      if (saved && typeof saved[index] === "string") { cell.textContent = saved[index]; }
+      cell.addEventListener("input", function () {
+        try { localStorage.setItem(KEY, JSON.stringify(cells.map(function (c) { return c.textContent; }))); } catch (error) {}
+      });
+    });
+    document.getElementById("print").addEventListener("click", function () { window.print(); });
+    document.getElementById("reset").addEventListener("click", function () {
+      if (!window.confirm("고친 내용을 지우고 예시로 되돌릴까요?")) { return; }
+      try { localStorage.removeItem(KEY); } catch (error) {}
+      window.location.reload();
+    });
+  })();
+</script>
+</body>
+</html>

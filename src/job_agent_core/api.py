@@ -34,7 +34,7 @@ from .browser_worker import (
     FillProgress,
 )
 from .constants import MAX_RESUME_BYTES
-from .korean_scope import enforce_korean_mvp_profile, korean_mvp_values
+from .korean_scope import KoreanMvpMapper, enforce_korean_mvp_profile, korean_mvp_values
 from .llm_mapping import DEFAULT_MAPPING_MODEL, LlmFieldMapper, LlmFirstMapper, LlmMappingError, endpoint_from_spec
 from .resume_lookup import lookup_answers
 from .mapping import FormField, MappingProvider
@@ -71,6 +71,12 @@ class ApiSettings(BaseModel):
     allowed_origins: frozenset[str] = frozenset(
         {"http://127.0.0.1", "http://localhost", "https://127.0.0.1", "https://localhost"}
     )
+
+
+# AI 보조 기능 켜기/끄기(첫 실행 설정 화면과 메뉴의 「AI 기능 설정」).
+class AiSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
 
 
 # 작업 생성 요청(지원서 URL). 화면에서는 이력서를 먼저 올리므로 URL은 비워 두고 나중에 정할 수 있습니다.
@@ -253,6 +259,17 @@ def create_app(
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "scope": "ko-KR-mvp"}
+
+    # AI 보조 기능 켜기/끄기. 끄면 칸 연결은 규칙만, 이력서 보조 추출·2차 확인은 하지 않습니다.
+    # 켜 두어도 Ollama가 없으면 요청마다 규칙으로 돌아갑니다.
+    @app.put("/api/settings/ai", dependencies=[Depends(authorize)])
+    async def set_ai(payload: AiSettingsRequest) -> dict[str, bool]:
+        configured = os.environ.get("JOB_AGENT_LLM", "auto")
+        settings.llm_mode = ("auto" if configured == "off" else configured) if payload.enabled else "off"
+        mapper = build_mapper(settings) or KoreanMvpMapper()
+        for planner in {id(worker): worker, id(browser_worker.planner): browser_worker.planner}.values():
+            planner.mapper = mapper
+        return {"enabled": settings.llm_mode != "off"}
 
     # 작업 생성: URL 검사 → DB에는 도메인만, 원본 URL은 메모리 보관함에 저장.
     @app.post("/api/tasks", response_model=TaskRecord, dependencies=[Depends(authorize)])

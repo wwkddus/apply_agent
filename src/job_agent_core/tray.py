@@ -144,6 +144,9 @@ class MenuBarIcon(QObject):
             action.setChecked(key == self.style)
             action.triggered.connect(lambda _checked=False, value=key: self.set_style(value))
             group.addAction(action)
+        open_ai_setup = getattr(window, "open_ai_setup", None)
+        if open_ai_setup is not None:
+            menu.addAction("AI 기능 설정…", open_ai_setup)
         menu.addSeparator()
         menu.addAction("종료", quit_app)
         menu.aboutToShow.connect(self._update_menu)

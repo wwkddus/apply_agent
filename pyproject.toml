@@ -25,7 +25,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-job_agent_core = ["assets/clover/*.svg"]
+job_agent_core = ["assets/clover/*.svg", "assets/*.html"]
 
 [tool.coverage.run]
 source = ["job_agent_core"]

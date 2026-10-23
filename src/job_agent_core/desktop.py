@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from PySide6.QtCore import QByteArray, QElapsedTimer, QObject, QPoint, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PySide6.QtCore import QByteArray, QElapsedTimer, QObject, QPoint, QRectF, QRunnable, QSettings, QSize, Qt, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import ollama_setup
 from .constants import EDUCATION_LEVELS
 from .tray import MenuBarIcon
 
@@ -81,7 +83,7 @@ ROW_ORDER = {"not_in_resume": 1, "pending_lookup": 1, "user_only": 2, "disabled_
 # 진행 단계(캡슐 바를 펼쳤을 때 보이는 5단계).
 STEPS = ("1. 이력서 업로드", "2. 채용 URL 업로드", "3. 자동 입력", "4. AI 2차 검증", "5. 완료")
 # 화면 상태 → 몇 번째 단계인지.
-STAGE_STEP = {"upload": 0, "parsing": 0, "resume": 0, "url": 1, "filling": 2, "checking": 3, "done": 4, "review": 4}
+STAGE_STEP = {"ai": 0, "upload": 0, "parsing": 0, "resume": 0, "url": 1, "filling": 2, "checking": 3, "done": 4, "review": 4}
 
 # 이력서 확인 화면에서 보여 줄 이름(이력서 경로 → 한국어).
 RESUME_LABELS = {
@@ -112,8 +114,11 @@ EDUCATION_FIELD_LABELS = {
 # 이력서 확인 화면 기본 행(나머지는 '모두 보기').
 RESUME_SUMMARY = ("person.birth_date", "person.phone", "person.email", "person.address")
 
-# 템플릿 이력서 내려받기 주소. 템플릿이 준비되면 채웁니다(비어 있으면 링크를 숨김).
-TEMPLATE_URL = ""
+# 템플릿 이력서(앱에 함께 들어 있음). 브라우저에서 값을 고친 뒤 PDF로 저장합니다.
+TEMPLATE_PATH = Path(__file__).parent / "assets" / "resume_template.html"
+
+# AI 보조 기능 선택(QSettings): "on" 또는 "off". 값이 없으면 첫 실행이라 설정 화면을 먼저 보여 줍니다.
+AI_CHOICE_KEY = "ai/choice"
 
 # 색상(디자인 시안과 같은 흑백 팔레트).
 INK = "#111111"
@@ -303,6 +308,9 @@ class DesktopApiClient:
     def edit_resume(self, task_id: str, path: str, value: str) -> dict[str, Any]:
         return self._request("PATCH", f"/api/tasks/{task_id}/resume", json={"path": path, "value": value})
 
+    def set_ai(self, enabled: bool) -> dict[str, Any]:
+        return self._request("PUT", "/api/settings/ai", json={"enabled": enabled})
+
 
 # 백그라운드 작업 → 화면으로 결과를 전달하는 신호(성공/실패/종료).
 class OperationSignals(QObject):
@@ -330,6 +338,31 @@ class ApiOperation(QRunnable):
             self.signals.succeeded.emit(result)
         finally:
             self.signals.finished.emit()
+
+
+# AI 기능 설치(Ollama 확인 → 설치 → 실행 → 모델 받기)를 백그라운드에서 실행합니다. 진행 문구와 비율을 보냅니다.
+class SetupSignals(QObject):
+    progress = Signal(str, object)
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+
+class SetupOperation(QRunnable):
+    def __init__(self, prepare: Callable[..., object] = ollama_setup.prepare):
+        super().__init__()
+        self.prepare = prepare
+        self.cancel = threading.Event()
+        self.signals = SetupSignals()
+
+    def run(self) -> None:
+        try:
+            result = self.prepare(lambda text, value: self.signals.progress.emit(text, value), self.cancel)
+        except ollama_setup.OllamaSetupError as error:
+            self.signals.failed.emit(str(error))
+        except Exception as error:  # 화면에는 안전한 문구만 보냅니다.
+            self.signals.failed.emit(f"AI 기능을 준비하지 못했습니다. ({type(error).__name__})")
+        else:
+            self.signals.succeeded.emit(result)
 
 
 # 진행 막대. 값(0~1)을 보여 주거나, 진행률을 모를 때는 짧은 막대가 좌우로 움직입니다.
@@ -604,6 +637,14 @@ class ApplyLocalWindow(QWidget):
         self.show_all_resume = False
         self.review_boxes: list[tuple[dict[str, Any], QComboBox, list[str]]] = []
         self._drag_from: QPoint | None = None
+        # AI 보조 기능 설정: 선택 저장소(run_desktop에서 붙임), 설치 작업, 설정 화면에 오기 전 단계, 확인한 상태.
+        self.ai_settings: QSettings | None = None
+        self.setup_operation: SetupOperation | None = None
+        self.stage_before_ai = "upload"
+        self.ai_status: ollama_setup.OllamaStatus | None = None
+        self.ai_memory = 0
+        self.ai_progress: tuple[str, float | None] = ("", None)
+        self.ai_error = ""
         # 메뉴 막대 아이콘(run_desktop에서 붙임)과, 마지막 작업이 실패했는지(아이콘을 오류 표정으로).
         self.tray = None
         self.failed_last = False
@@ -699,6 +740,7 @@ class ApplyLocalWindow(QWidget):
         self.stepper = Stepper(STEPS)
         body.addWidget(self.stepper)
         self.pages = {
+            "ai": self._build_ai_page(),
             "upload": self._build_upload_page(),
             "resume": self._build_resume_page(),
             "url": self._build_url_page(),
@@ -732,6 +774,55 @@ class ApplyLocalWindow(QWidget):
         label.setWordWrap(True)
         return label
 
+    # 첫 실행 · 메뉴의 「AI 기능 설정」: AI 보조 기능(Ollama)을 설명하고, 동의하면 설치합니다.
+    def _build_ai_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        title = QLabel("AI 보조 기능")
+        title.setObjectName("big")
+        layout.addWidget(title)
+        intro = QLabel(
+            "이 컴퓨터에서만 실행되는 AI(Ollama)가 처음 보는 지원서 칸을 이해하고, 규칙으로 못 채운 항목을 "
+            "이력서 원문과 한 번 더 확인합니다. 이력서와 개인정보는 이 컴퓨터 밖으로 보내지 않습니다."
+        )
+        intro.setObjectName("info")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.ai_detail = self._muted("이 컴퓨터의 Ollama를 확인하고 있습니다…")
+        layout.addWidget(self.ai_detail)
+        self.ai_consent = self._muted(
+            "「설치하고 사용」을 누르면 ollama.com에서 Ollama(오픈소스, MIT 라이선스)와 AI 모델을 받아 설치하는 데 "
+            "동의하는 것입니다. 설치 파일은 Ollama 서명을 확인한 뒤에만 설치합니다."
+        )
+        layout.addWidget(self.ai_consent)
+        self.ai_progress_label = QLabel()
+        layout.addWidget(self.ai_progress_label)
+        self.ai_bar = ProgressLine(8)
+        layout.addWidget(self.ai_bar)
+        buttons = QHBoxLayout()
+        self.ai_later_link = self._link("기다리지 않고 계속(규칙으로)")
+        self.ai_later_link.setToolTip("설치는 뒤에서 계속됩니다. 끝나면 알려 드립니다.")
+        self.ai_later_link.clicked.connect(self._leave_ai_setup)
+        buttons.addWidget(self.ai_later_link)
+        buttons.addStretch()
+        self.ai_skip_button = QPushButton("AI 없이 사용")
+        self.ai_skip_button.setObjectName("secondary")
+        self.ai_skip_button.clicked.connect(self._choose_rules_only)
+        self.ai_cancel_button = QPushButton("설치 취소")
+        self.ai_cancel_button.setObjectName("secondary")
+        self.ai_cancel_button.clicked.connect(self._cancel_ai_setup)
+        self.ai_install_button = QPushButton("설치하고 사용 (권장)")
+        self.ai_install_button.setObjectName("primary")
+        self.ai_install_button.setMinimumWidth(170)
+        self.ai_install_button.clicked.connect(self._install_ai)
+        for button in (self.ai_skip_button, self.ai_cancel_button, self.ai_install_button):
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+        layout.addWidget(self._muted("나중에 메뉴(머리 줄 오른쪽 클릭 또는 메뉴 막대 아이콘)의 「AI 기능 설정」에서 바꿀 수 있습니다."))
+        return page
+
     # 1. 이력서 업로드.
     def _build_upload_page(self) -> QWidget:
         page = QWidget()
@@ -748,13 +839,13 @@ class ApplyLocalWindow(QWidget):
         layout.addWidget(self.drop_zone)
         footer = QHBoxLayout()
         self.template_hint = self._muted("템플릿 이력서를 그대로 고쳐 쓰면 가장 정확합니다.")
-        self.template_link = self._link("템플릿 받기 ↓")
+        self.template_link = self._link("템플릿 열기")
         self.template_link.clicked.connect(self._open_template)
         footer.addWidget(self.template_hint, 1)
         footer.addWidget(self.template_link)
         layout.addLayout(footer)
-        self.template_hint.setVisible(bool(TEMPLATE_URL))
-        self.template_link.setVisible(bool(TEMPLATE_URL))
+        self.template_hint.setVisible(TEMPLATE_PATH.is_file())
+        self.template_link.setVisible(TEMPLATE_PATH.is_file())
         return page
 
     # 1. 이력서 확인(읽은 직후). 값이 틀리면 '수정'으로 고칩니다.
@@ -1086,6 +1177,8 @@ class ApplyLocalWindow(QWidget):
         pin.toggled.connect(self.pin_button.setChecked)
         if self.tray is not None:
             menu.addAction("숨기기 (메뉴 막대 아이콘으로 다시 열기)", self.hide)
+        menu.addAction("AI 기능 설정…", self.open_ai_setup)
+        menu.addAction("이력서 템플릿 열기", self._open_template)
         menu.addSeparator()
         menu.addAction("종료", self.close)
         menu.exec(self.header.mapToGlobal(position))
@@ -1162,6 +1255,162 @@ class ApplyLocalWindow(QWidget):
     def _set_stage(self, stage: str) -> None:
         self.stage = stage
         self._render()
+
+    # ---------- AI 보조 기능 ----------
+
+    # 앱을 켤 때 한 번: 선택이 없으면(첫 실행) 설정 화면, 켜 두었으면 Ollama를 깨우고 준비 상태를 확인합니다.
+    def start_ai(self, settings: QSettings) -> None:
+        self.ai_settings = settings
+        choice = settings.value(AI_CHOICE_KEY)
+        if choice not in {"on", "off"}:
+            self.open_ai_setup()
+            return
+        enabled = choice == "on"
+        self._background(lambda: self._wake_ai(enabled), self._ai_woken)
+
+    def _wake_ai(self, enabled: bool) -> ollama_setup.OllamaStatus | None:
+        self.client.set_ai(enabled)
+        if not enabled:
+            return None
+        status = ollama_setup.detect()
+        if status.installed and not status.running:
+            ollama_setup.start(status.location)
+            status = ollama_setup.wait_until_running(timeout=30)
+        return status
+
+    def _ai_woken(self, status: ollama_setup.OllamaStatus | None) -> None:
+        if status is not None and not status.ready:
+            self.toast.show_message("AI 기능 준비가 끝나지 않아 규칙만 사용합니다.", "설정", self.open_ai_setup)
+
+    # 화면을 잠그지 않는 백그라운드 확인(Ollama 상태, AI 켜기/끄기).
+    def _background(self, function: Callable[[], object], success: Callable[[Any], None]) -> None:
+        operation = ApiOperation(function)
+        self._operations.add(operation)
+        operation.signals.succeeded.connect(success)
+        operation.signals.failed.connect(self.toast.show_message)
+        operation.signals.finished.connect(lambda: self._operations.discard(operation))
+        self.thread_pool.start(operation)
+
+    # 메뉴의 「AI 기능 설정」. 입력 작업 중에는 열지 않습니다.
+    def open_ai_setup(self) -> None:
+        if self.stage != "ai":
+            if self.busy or self.stage in {"parsing", "filling", "checking"}:
+                self.toast.show_message("지금 작업이 끝난 뒤 AI 기능 설정을 열 수 있습니다.")
+                return
+            self.stage_before_ai = self.stage
+        self.expanded = True
+        if not self.isVisible():
+            self.show()
+        self._set_stage("ai")
+        if self.setup_operation is None:
+            self.ai_status = None
+            self._background(lambda: (ollama_setup.detect(), ollama_setup.total_memory()), self._ai_detected)
+
+    def _ai_detected(self, result: tuple[ollama_setup.OllamaStatus, int]) -> None:
+        self.ai_status, self.ai_memory = result
+        self._render()
+
+    # 설치할 것과 이 컴퓨터에 대한 안내.
+    def _ai_plan_text(self) -> str:
+        status = self.ai_status
+        if status is None:
+            return "이 컴퓨터의 Ollama를 확인하고 있습니다…"
+        if status.ready:
+            return "Ollama와 AI 모델이 모두 준비되어 있습니다."
+        if not status.installed and ollama_setup.unsupported_reason():
+            return ollama_setup.unsupported_reason()
+        parts = []
+        if not status.installed:
+            parts.append(f"Ollama 앱(약 {ollama_setup.gigabytes(ollama_setup.INSTALLER_SIZES.get(ollama_setup.platform_key(), 0))})")
+        if status.missing_models:
+            size = sum(ollama_setup.MODEL_SIZES.get(name, 5_000_000_000) for name in status.missing_models)
+            parts.append(f"AI 모델 {len(status.missing_models)}개(약 {ollama_setup.gigabytes(size)})")
+        text = "설치할 것: " + " · ".join(parts) + ". 인터넷 속도에 따라 수십 분 걸릴 수 있습니다." if parts else ""
+        if status.installed and not status.running:
+            text = (text + " " if text else "") + "설치된 Ollama를 실행합니다."
+        if 0 < self.ai_memory < ollama_setup.RECOMMENDED_MEMORY:
+            text += f"\n이 컴퓨터 메모리 {round(self.ai_memory / 1024**3)}GB · AI 처리가 느릴 수 있습니다(16GB 이상 권장)."
+        return text
+
+    def _install_ai(self) -> None:
+        if self.setup_operation is not None:
+            return
+        operation = SetupOperation()
+        self.setup_operation = operation
+        self.ai_error = ""
+        self.ai_progress = ("준비 중", None)
+        operation.signals.progress.connect(self._ai_progress_changed)
+        operation.signals.succeeded.connect(self._ai_ready)
+        operation.signals.failed.connect(self._ai_failed)
+        self.thread_pool.start(operation)
+        self._render()
+
+    # 진행 이벤트가 잦아 화면 전체 대신 문구와 막대만 바꿉니다.
+    def _ai_progress_changed(self, text: str, value: object) -> None:
+        self.ai_progress = (text, value if isinstance(value, float) else None)
+        if self.stage == "ai":
+            self._render_ai()
+            self._render_header()
+
+    def _ai_ready(self, status: ollama_setup.OllamaStatus) -> None:
+        self.setup_operation = None
+        self.ai_status = status
+        if self.ai_settings is not None:
+            self.ai_settings.setValue(AI_CHOICE_KEY, "on")
+        self._background(lambda: self.client.set_ai(True), lambda _result: None)
+        self.toast.show_message("AI 보조 기능이 준비되었습니다.")
+        if self.stage == "ai":
+            self._leave_ai_setup()
+        else:
+            self._render()
+
+    def _ai_failed(self, text: str) -> None:
+        self.setup_operation = None
+        self.ai_error = text
+        if self.stage != "ai":
+            self.toast.show_message(text, "설정", self.open_ai_setup)
+        self._render()
+
+    def _cancel_ai_setup(self) -> None:
+        if self.setup_operation is not None:
+            self.setup_operation.cancel.set()
+            self.ai_progress = ("취소하는 중…", None)
+            self._render_ai()
+
+    def _choose_rules_only(self) -> None:
+        if self.ai_settings is not None:
+            self.ai_settings.setValue(AI_CHOICE_KEY, "off")
+        self._background(lambda: self.client.set_ai(False), lambda _result: None)
+        self.toast.show_message("AI 없이 규칙만 사용합니다. 메뉴의 「AI 기능 설정」에서 언제든 켤 수 있습니다.")
+        self._leave_ai_setup()
+
+    def _leave_ai_setup(self) -> None:
+        self._set_stage(self.stage_before_ai if self.stage_before_ai != "ai" else "upload")
+
+    def _render_ai(self) -> None:
+        status, running = self.ai_status, self.setup_operation is not None
+        self.ai_detail.setText(self._ai_plan_text())
+        self.ai_consent.setVisible(not running and status is not None and not status.installed)
+        text, value = self.ai_progress
+        self.ai_progress_label.setText(text if running else self.ai_error)
+        self.ai_progress_label.setVisible(running or bool(self.ai_error))
+        self.ai_bar.setVisible(running)
+        if running and value is not None:
+            self.ai_bar.set_value(value)
+        elif running:
+            self.ai_bar.set_busy()
+        blocked = status is not None and not status.installed and bool(ollama_setup.unsupported_reason())
+        self.ai_install_button.setVisible(not running)
+        self.ai_install_button.setEnabled(status is not None and not blocked)
+        if status is not None and status.ready:
+            self.ai_install_button.setText("AI 사용")
+        elif status is not None and status.installed:
+            self.ai_install_button.setText("모델 받고 사용 (권장)" if status.missing_models else "AI 사용 (권장)")
+        else:
+            self.ai_install_button.setText("다시 시도" if self.ai_error else "설치하고 사용 (권장)")
+        self.ai_skip_button.setVisible(not running)
+        self.ai_cancel_button.setVisible(running)
+        self.ai_later_link.setVisible(running)
 
     # ---------- 1. 이력서 ----------
 
@@ -1300,12 +1549,10 @@ class ApplyLocalWindow(QWidget):
     def _other_file(self) -> None:
         self._cancel_task(lambda: self._start_over(keep_resume=False))
 
+    # 템플릿을 브라우저로 엽니다. 값을 고친 뒤 「PDF로 저장」으로 이력서 PDF를 만듭니다.
     def _open_template(self) -> None:
-        if TEMPLATE_URL:
-            from PySide6.QtGui import QDesktopServices
-            from PySide6.QtCore import QUrl
-
-            QDesktopServices.openUrl(QUrl(TEMPLATE_URL))
+        if TEMPLATE_PATH.is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(TEMPLATE_PATH)))
 
     # ---------- 2. URL · 브라우저 ----------
 
@@ -1642,7 +1889,11 @@ class ApplyLocalWindow(QWidget):
         stage, bar, count = self.stage, self.header_bar, ""
         text, mode, value = "", "hidden", 0.0
         counts = self._counts()
-        if stage == "upload":
+        if stage == "ai":
+            text = "AI 보조 기능 설정"
+            if self.setup_operation is not None:
+                mode, value = ("value", self.ai_progress[1]) if self.ai_progress[1] is not None else ("busy", 0.0)
+        elif stage == "upload":
             text = "1. 이력서를 올려 주세요"
         elif stage == "parsing":
             text, mode = "1. 이력서를 읽는 중", "busy"
@@ -1727,8 +1978,11 @@ class ApplyLocalWindow(QWidget):
             page.setVisible(name == page_name)
         self.body.setVisible(self.expanded)
         self.toggle_button.setIcon(svg_icon(CHEVRON_UP if self.expanded else CHEVRON_DOWN))
+        self.stepper.setVisible(stage != "ai")
         self.stepper.set_current(STAGE_STEP[stage])
         self._render_header()
+        if stage == "ai":
+            self._render_ai()
 
         busy = self.busy
         parsing = stage == "parsing"
@@ -1771,7 +2025,7 @@ class ApplyLocalWindow(QWidget):
     def tray_state(self) -> str:
         if self.failed_last:
             return "error"
-        if self.busy or self.stage in {"parsing", "filling", "checking"}:
+        if self.busy or self.stage in {"parsing", "filling", "checking"} or (self.stage == "ai" and self.setup_operation):
             return "applying"
         if self.pending_domain or (self.stage == "url" and self.browser is not None):
             return "waiting"
@@ -1781,6 +2035,8 @@ class ApplyLocalWindow(QWidget):
 
     # 창을 닫을 때도 작업을 취소해 브라우저와 민감 데이터를 정리합니다.
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
+        if self.setup_operation is not None:
+            self.setup_operation.cancel.set()
         if self.task_id:
             try:
                 self.client.cancel(self.task_id)
@@ -1802,6 +2058,7 @@ def run_desktop(base_url: str, token: str) -> int:
 
         window.tray = MenuBarIcon(window, quit_app)
         window._render()
+    window.start_ai(QSettings("Apply Local", "Apply Local"))
     window.place_on_screen()
     window.show()
     return app.exec()
