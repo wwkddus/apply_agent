@@ -203,6 +203,7 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
                     "birth_date": "1990-02-03",
                 },
                 "education": [
+                    {"education_level": "high_school", "school_name": "예시고등학교"},
                     {
                         "education_level": "university",
                         "school_name": "예시대학교",
@@ -234,6 +235,7 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
                 "person.email",
                 "person.phone",
                 "person.birth_date",
+                "education.high_school.school_name",
                 "education.university.school_name",
                 "education.university.degree",
                 "education.university.admission_date",
@@ -253,8 +255,8 @@ class BrowserWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await page.locator('[name$="completionStatus"]').inner_text(), "졸업")
         self.assertEqual(await page.locator('[name$="scoreScale"]').inner_text(), "4.5")
         self.assertEqual(await page.locator('[role=radio][aria-checked=true]').all_inner_texts(), ["학사", "입학"])
-        # Out of scope: high school, work history, day/night, consent, submit.
-        self.assertEqual(await page.locator('[name$="highSchool.schoolName"]').input_value(), "")
+        self.assertEqual(await page.locator('[name$="highSchool.schoolName"]').input_value(), "예시고등학교")
+        # Out of scope: work history, day/night, consent, submit.
         self.assertEqual(await page.locator('[name$="department"]').input_value(), "")
         self.assertFalse(await page.locator("#agree").is_checked())
         self.assertEqual(await page.evaluate("window.submitted"), 0)

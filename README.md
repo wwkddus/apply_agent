@@ -31,9 +31,10 @@ Apply Local은 PDF 이력서를 읽어 한국 채용 사이트의 지원서 양�
 2. 「Windows의 PC 보호」 창이 뜨면 **「추가 정보」 → 「실행」**을 누릅니다.
 
 ### AI 보조 기능 (선택)
-Ollama 없이도 규칙 기반 입력은 모두 동작합니다. 표 형식이 아닌 이력서 읽기와 2차 확인까지 쓰려면 [Ollama](https://ollama.com/download)를 설치한 뒤 터미널에서 모델을 받습니다(약 5GB).
+Ollama 없이도 규칙 기반 입력은 모두 동작합니다. 처음 보는 지원서 칸 연결(AI 칸 연결), 표 형식이 아닌 이력서 읽기, 2차 확인까지 쓰려면 [Ollama](https://ollama.com/download)를 설치한 뒤 터미널에서 모델을 받습니다(각 약 5GB).
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen3:8b     # AI 칸 연결
+ollama pull qwen2.5:7b   # 이력서 보조 추출·2차 확인
 ```
 
 이력서와 실행 기록은 내 컴퓨터에만 저장됩니다. (Mac: `~/Library/Application Support/ApplyLocal`, Windows: `%APPDATA%\ApplyLocal`)
@@ -44,7 +45,7 @@ ollama pull qwen2.5:7b
 - 텍스트형 PDF에서 다음 항목을 추출합니다.
   - 이름(한글·영문), 생년월일, 연락처, 이메일·보조 이메일, 주소
   - 병역·장애·보훈 여부
-  - 대학교·대학원 학력
+  - 고등학교·대학교·대학원 학력, 편입한 경우 편입 전 대학(「편입 전 대학교」 구역)
 - 표 형식이 아닌 이력서는 로컬 LLM(Ollama)이 보조로 추출합니다. 이때 **이력서 원문에 실제로 있는 값만** 받아들입니다.
 - 영문 이름은 한글 성을 기준으로 성과 이름의 순서를 판단합니다(`ZHANG YAN` → 성 ZHANG / 이름 YAN).
 - 추출 결과는 미리보기 표에서 확인하고 고칠 수 있습니다.
@@ -74,7 +75,8 @@ ollama pull qwen2.5:7b
   2. Kakao 우편번호 창에서 이력서 주소로 검색합니다.
   3. 결과가 하나일 때만 선택하고, 기본주소·우편번호를 확인한 뒤 상세주소를 입력합니다.
   4. 결과가 여러 개면 검색해 둔 창을 열어 두고 사용자가 고르게 합니다.
-- **입력 블록 추가**: 「대학/대학원 학력 정보 추가」 버튼을 눌러 입력 블록을 열고 채웁니다. 최종 학력은 이력서 학력에서 계산합니다.
+- **입력 블록 추가**: 「고등학교/대학/대학원 학력 추가」 버튼을 눌러 입력 블록을 열고 채웁니다. 최종 학력은 이력서 학력에서 계산합니다.
+- **편입**: 페이지에 대학 블록이 두 개 이상이면 시간 순서대로 첫 블록에 편입 전 대학, 마지막 블록에 졸업(편입한) 대학을 넣습니다. 블록이 하나뿐이면 「대학 추가」를 한 번 더 누릅니다. 편입 전 대학 칸은 순서 가정이 맞는지 「입력됨 · 확인 필요」로 표시합니다. 전문대학 블록과 대학교 블록이 따로 있는 페이지는 학교 종류(학교명·학위에 「전문대/전문학사」가 있는지)에 맞는 블록에 넣고, 편입하지 않았다면 전문대학 블록은 비워 둡니다.
 - **민감 항목**: 병역·장애·보훈은 이력서 값대로 입력하되, 항상 「입력됨 · 확인 필요」로 표시합니다.
 
 ### 모든 필드에 결과를 남기는 표와 2차 확인
@@ -142,8 +144,11 @@ python3.11 -m venv .venv
 
 ```bash
 brew install ollama && brew services start ollama
+ollama pull qwen3:8b
 ollama pull qwen2.5:7b
 ```
+
+칸 연결 모델은 `JOB_AGENT_MAPPING_MODEL`(기본 `ollama:qwen3:8b`, 비우면 규칙만)로 바꿀 수 있습니다.
 
 ## 실행
 
@@ -156,7 +161,7 @@ ollama pull qwen2.5:7b
 
 1. **이력서 업로드**: PDF를 끌어 놓거나 `파일 선택`. 읽은 값을 확인하고 틀리면 `수정`한 뒤 `다음`.
 2. **채용 URL 업로드**: URL을 넣고 `브라우저 열기`. 열린 브라우저에서 로그인·본인 인증을 직접 마치고 지원서 화면으로 이동한 뒤 `자동 입력 시작`.
-3. **자동 입력**: 칸마다 진행 상황이 보입니다. 입력한 값은 브라우저에서 다시 읽어 확인합니다.
+3. **자동 입력**: 먼저 로컬 AI가 지원서 화면 전체의 칸 구조(라벨·선택지, 이력서 값은 보내지 않음)를 보고 이력서 항목과 연결합니다(1~3분, 같은 화면은 다시 묻지 않음). 규칙은 동의·논문·다른 사람 정보 같은 칸을 막는 안전장치로 쓰고, 규칙과 AI가 같으면 그대로, AI만 연결한 칸은 입력하되 「입력됨 · 확인 필요」로, 서로 다르면 직접 확인으로 남깁니다. Ollama가 없으면 규칙만 씁니다. 칸마다 진행 상황이 보이고, 입력한 값은 브라우저에서 다시 읽어 확인합니다.
 4. **AI 2차 검증**: 규칙으로 못 채운 항목을 로컬 LLM이 이력서 원문과 대조합니다(1~3분, Ollama가 없으면 건너뜀). `건너뛰기`를 누르면 늦게 온 답은 입력하지 않습니다.
 5. **완료**: 「확인 필요」 항목을 고르거나 고친 뒤 `적용`. **저장·최종 제출은 사용자가 직접** 합니다.
    - `다음 페이지 입력`: 안전한 「다음」 버튼이 있을 때만 보입니다.
@@ -186,6 +191,7 @@ PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/pyt
 | `check_resume.py` | PDF에 추출 가능한 텍스트가 있는지, 항목별 값 존재 여부만 확인 |
 | `record_run.py` | 실제 사이트에서 검사·입력 결과와 소요 시간 기록, `--dump-structure`로 값 없는 필드 구조 스냅샷 저장 |
 | `score_runs.py` | 정답 라벨(`evaluation/labels/*.csv`)과 비교해 지표 계산 |
+| `llm_mapping_eval.py` | 저장된 구조 스냅샷으로 칸 연결 방식(규칙·로컬 모델·OpenAI·AI 우선)을 브라우저 없이 비교 (`evaluation/labels/structures/*.csv`) |
 
 주요 지표: 필드 매핑 정확도, 자동 입력 성공률, 검증 통과율, 잘못된 입력(Unsafe fill), 설명 없이 누락된 필드 수, 사용자 개입률, 재시도 횟수, 지연 시간.
 
@@ -193,6 +199,7 @@ PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/pyt
 .venv/bin/python evaluation/check_resume.py /path/to/resume.pdf
 .venv/bin/python evaluation/record_run.py --variant after --site site-a --resume /path/to/resume.pdf --url "https://..."
 .venv/bin/python evaluation/score_runs.py
+.venv/bin/python evaluation/llm_mapping_eval.py evaluation/structures/<snapshot>.json --provider rules --provider llmfirst:ollama:qwen3:8b
 ```
 
 ## 앱 빌드와 배포
@@ -217,7 +224,7 @@ src/job_agent_core/
   launcher.py                로컬 API(백그라운드 스레드) + 데스크톱 화면 시작
   app_paths.py               실행 데이터 폴더 (설치 앱은 OS 사용자 데이터 폴더)
   desktop.py                 PySide6 캡슐 바 화면 (5단계 진행, 확인 필요 검토)
-  tray.py                    메뉴 막대 아이콘 (단계별 표정과 움직임, assets/menubar/*.svg)
+  tray.py                    메뉴 막대 아이콘 (네잎클로버, 단계별 움직임, assets/clover/*.svg)
   api.py                     로컬 FastAPI 작업 API (토큰·루프백 전용)
   resume_parser.py           PDF 검사와 규칙 기반 이력서 항목 추출
   resume_llm.py              로컬 Ollama 이력서 보조 추출 (원문 근거 검사)
@@ -225,7 +232,8 @@ src/job_agent_core/
   models.py, names.py        이력서·이름 모델, 한글/영문 이름 분리 규칙
   form_inspector.py          브라우저 DOM 필드 검사 (라벨 복구, 숨김 라디오, fingerprint)
   attribute_semantics.py     name/id 속성 경로로 필드 의미 판단
-  korean_scope.py            필드 → 이력서 항목 매핑 (이름 구조, 휴대폰 칸, 제3자 보호)
+  korean_scope.py            필드 → 이력서 항목 규칙 매핑 (이름 구조, 휴대폰 칸, 제3자 보호)
+  llm_mapping.py             AI 칸 연결 (칸 구조만 전송, 규칙은 안전장치, 결과 캐시)
   mapping.py                 공통 필드/매핑 모델과 MappingProvider 인터페이스
   planning.py, worker.py     입력 계획 (최종 학력 등 계산 항목 포함)
   widgets.py                 컨트롤별 입력 방식, 형식 변환, 선택지 동의어
@@ -250,10 +258,10 @@ tests/                       단위·통합 테스트
   - 재학 상태, 병역·장애, 최종 학력은 변환됩니다.
   - 학교 소재지(서울 → `Seoul`) 같은 지역명 변환표는 아직 없어, 사용자가 「확인 필요」에서 골라야 했습니다.
 - **반복 입력 블록**
-  - 「추가」 버튼은 대학·대학원 학력만 지원합니다.
+  - 「추가」 버튼은 고등학교·대학·대학원 학력만 지원합니다.
   - 경력, 자격증, 어학, 수상 같은 반복 블록은 아직 지원하지 않습니다. 이력서 구조에도 아직 목록으로 들어 있지 않습니다.
 - **블록 안의 예/아니요 선택**
-  - 편입·복수전공·부전공 여부, 전공 계열, 학점 기준은 사용자 판단으로 남깁니다.
+  - 「편입여부」(Y 선택)는 이력서의 입학 구분(편입)으로 채웁니다. 복수전공·부전공 여부, 부전공, 전공 계열, 학점 기준, 국내·해외 구분, 「최종졸업(예정)대학」 같은 블록 선택 표시는 사용자 판단으로 남깁니다.
 - **학력 칸 오인식**
   - SK 대학원 '논문·졸업작품' 칸을 졸업일로 연결했고, 그리팅 대학원 '입학구분'을 대학 항목으로 연결했습니다.
   - SK 학력 블록은 아직 미입력 칸이 많아 정량 Before/After 수치에서 제외했습니다.

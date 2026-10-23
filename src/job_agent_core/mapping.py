@@ -57,6 +57,8 @@ class MappingRecord(BaseModel):
     reason: str
     source: str = "rule"
     part: str | None = None
+    # 페이지에 대학 블록이 여러 개일 때 몇 번째 블록인지(0부터). 편입 전 대학은 입력 계획에서 이 순서로 정합니다.
+    instance: int | None = None
     status: Literal[
         "auto_accepted",
         "needs_human_review",
@@ -85,6 +87,10 @@ class MappingRecord(BaseModel):
 class MappingResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mappings: list[MappingRecord]
+
+
+# AI만 연결하고 규칙은 판단하지 못한 칸의 출처 표시. 입력은 하되 「입력됨 · 확인 필요」로 남깁니다.
+LLM_ONLY_SOURCE = "llm_only"
 
 
 # 매퍼 공통 규격. 규칙 매퍼든 LLM 매퍼든 map_fields만 있으면 바꿔 끼울 수 있습니다(의존성 주입).

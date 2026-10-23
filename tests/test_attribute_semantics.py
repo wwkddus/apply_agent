@@ -23,7 +23,7 @@ class AttributeSemanticsTests(unittest.TestCase):
     def test_education_level_and_field_come_from_the_data_model_path(self):
         self.assertEqual(path("educationalBackground.universities.0.schoolName"), "education.university.school_name")
         self.assertEqual(path("educationalBackground.graduateSchools.0.schoolName"), "education.graduate_school.school_name")
-        self.assertEqual(path("educationalBackground.highSchool.schoolName"), "unmapped")
+        self.assertEqual(path("educationalBackground.highSchool.schoolName"), "education.high_school.school_name")
         self.assertEqual(path("educationalBackground.universities.0.enrollmentPeriod.startDate"), "education.university.admission_date")
         self.assertEqual(path("educationalBackground.universities.0.enrollmentPeriod.endDate"), "education.university.graduation_date")
         self.assertEqual(path("educationalBackground.universities.0.gpa.score"), "education.university.gpa")
@@ -64,7 +64,7 @@ class AttributeSemanticsTests(unittest.TestCase):
             [
                 ("education.university.graduation_date", "auto_accepted"),
                 ("unmapped", "unmapped_optional"),
-                ("unmapped", "unmapped_optional"),
+                ("education.high_school.school_name", "auto_accepted"),
                 ("education.university.school_name", "auto_accepted"),
             ],
         )

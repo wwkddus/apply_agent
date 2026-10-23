@@ -27,7 +27,7 @@ from .mapping import FormField, FormOption
 from .models import ResumeProfile
 from .security import domain_matches, is_safe_next_control, is_submit_like_control
 from .models import clean_field
-from .planning import FillAction, field_name_for_path, get_resume_value
+from .planning import FillAction, field_name_for_path, get_resume_value, university_block_paths
 from .constants import ALLOWED_RESUME_PATHS, SENSITIVE_STATUS_PATHS
 from .resume_llm import LlmUnavailable
 from .resume_lookup import DATE_WIDGETS, NO_EVIDENCE, LookupFn, LookupItem, user_only_reason
@@ -208,6 +208,10 @@ class _Outcome:
 DISABLED_REASON = "페이지에서 비활성화된 항목입니다. 다른 선택에 따라 입력할 수 없는 상태일 수 있습니다 (예: 재학 중이면 졸업일 없음)."
 MAX_OPTION_CANDIDATES = 30
 _PLACEHOLDER_OPTION_RE = re.compile(r"(선택|선택하세요|선택해\s*주세요|미선택|choose|select)(\s*\.{0,3})", re.I)
+# Same prompt wording as the inspector's SELECT_PROMPT ('선택', '-- 선택 --', '군필 여부 선택', 'Select One').
+_SELECT_PROMPT_RE = re.compile(
+    r"[-=\s]*([^-=]{0,20}\s)?(선택(하세요|해\s*주세요|하십시오)?|미선택|choose|select( one)?|please select)[-=\s.]*", re.I
+)
 
 
 # 결과 한 줄을 만드는 도우미(페이지 선택지를 후보로 함께 담음).
@@ -284,8 +288,9 @@ _NO_LOOKUP_PATHS = {
 
 # 학력 '추가' 버튼 문구 패턴(대학/대학원). 고등학교 블록은 열지 않습니다.
 _GRADUATE_WORD_RE = re.compile(r"대학원|post\s*graduate|graduate\s*school", re.I)
-# (level, add-button wording, name shown to the user). High school blocks are never opened.
+# (level, add-button wording, name shown to the user).
 _ADD_SECTION_BUTTONS = (
+    ("high_school", re.compile(r"(고등\s*학교|고교|high\s*school).{0,20}(추가|add)|add.{0,20}high\s*school", re.I), "고등학교 학력"),
     ("university", re.compile(r"(대학|university|college|학사).{0,20}(추가|add)|add.{0,20}(university|college)", re.I), "대학 학력"),
     ("graduate_school", re.compile(r"(대학원|post\s*graduate|graduate\s*school).{0,20}(추가|add)|add.{0,20}(post\s*graduate|graduate)", re.I), "대학원 학력"),
 )
@@ -423,7 +428,13 @@ class BrowserAutomationWorker:
     # ① 준비 → ② 학력 '추가' 버튼이 필요하면 열고 다시 준비 → ③ 칸별 입력(주소 묶음은 나중에)
     # → ④ 주소 검색 → ⑤ 남은 칸 기록 → ⑥ 다시 분석해서, 비활성이던 칸이 풀렸으면 재시도 → ⑦ 보고서.
     async def fill(self, task_id: str, profile: ResumeProfile) -> BrowserFillReport:
-        prepared = await self._prepare(task_id, profile)
+        # AI 칸 연결은 1~3분 걸릴 수 있어 그동안 무엇을 하는지 보여 줍니다.
+        self.progress[task_id] = FillProgress(running=True, current="입력 칸 분석 중")
+        try:
+            prepared = await self._prepare(task_id, profile)
+        except BaseException:
+            self.progress[task_id].running = False
+            raise
         opened = await self._expand_sections(prepared, profile)
         if opened:
             prepared = await self._prepare(task_id, profile)
@@ -471,10 +482,12 @@ class BrowserAutomationWorker:
             needs_human_count=manual_count,
             failed_count=failed_count,
             disabled_count=disabled_count,
-            notice=(
-                f"{', '.join(opened)} 입력란을 '추가' 버튼으로 열어 채웠습니다. 필요 없으면 해당 블록의 '삭제'를 누르세요."
-                if opened
-                else ""
+            notice=" ".join(
+                part for part in (
+                    f"{', '.join(opened)} 입력란을 '추가' 버튼으로 열어 채웠습니다. 필요 없으면 해당 블록의 '삭제'를 누르세요."
+                    if opened else "",
+                    getattr(self.planner, "notice", ""),
+                ) if part
             ),
             safe_next_available=len(refreshed.safe_next) == 1,
             submit_control_count=len(refreshed.submit_controls),
@@ -489,26 +502,40 @@ class BrowserAutomationWorker:
         nothing. Save and submit buttons are never clicked.
         """
         mapped = {mapping.resume_path for mapping in prepared.plan.mappings}
+        university_blocks = {mapping.instance or 0 for mapping in prepared.plan.mappings
+                             if mapping.resume_path.startswith("education.university.")}
         opened: list[str] = []
         for level, pattern, name in _ADD_SECTION_BUTTONS:
             if not get_resume_value(profile, f"education.{level}.school_name"):
                 continue
-            if f"education.{level}.school_name" in mapped:
+            # 편입했다면 대학 블록이 두 개 필요합니다(편입 전 대학 + 졸업 대학).
+            wanted = 1
+            present = int(f"education.{level}.school_name" in mapped)
+            if level == "university":
+                wanted += bool(get_resume_value(profile, "education.previous_university.school_name"))
+                present = len(university_blocks) if f"education.{level}.school_name" in mapped else 0
+            if present >= wanted:
                 continue
             buttons = [
                 control for control in prepared.inspection.controls
                 if control.tag in {"button", "input"} and control.attr_type == "button"
                 and not _submit_like(control) and pattern.search(control.text)
-                and not (level == "university" and _GRADUATE_WORD_RE.search(control.text))
+                and not (level != "graduate_school" and _GRADUATE_WORD_RE.search(control.text))
             ]
             if not buttons:
                 continue
             locator = buttons[0].frame.locator(buttons[0].selector)
-            try:
-                if await locator.count() != 1 or not await locator.is_visible():
-                    continue
-                await locator.click(timeout=5_000)
-            except PlaywrightError:
+            clicked = 0
+            for _ in range(wanted - present):
+                try:
+                    if await locator.count() != 1 or not await locator.is_visible():
+                        break
+                    await locator.click(timeout=5_000)
+                except PlaywrightError:
+                    break
+                clicked += 1
+                await asyncio.sleep(0.5)
+            if not clicked:
                 continue
             await asyncio.sleep(0.5)
             opened.append(name)
@@ -549,7 +576,11 @@ class BrowserAutomationWorker:
                 status="needs_human",
                 reason=widget.reason if widget else "안전한 입력 방법을 결정하지 못했습니다.",
             )
-        return await self._execute(field, target, widget)
+        result = await self._execute(field, target, widget)
+        # AI만 연결한 칸은 입력·검증이 끝나도 사용자가 확인하도록 남깁니다.
+        if action.review and result.status == "filled_verified":
+            return result.model_copy(update={"status": "filled_review", "reason": action.review})
+        return result
 
     # 읽기 전용 주소 처리: 우편번호 창으로 검색·선택 → 주소 칸을 다시 읽어 확인 → 우편번호 확인
     # → 기본주소가 확인된 뒤에만 상세주소 입력. 실패하면 진단(단계만, 값 없음)을 남깁니다.
@@ -811,6 +842,7 @@ class BrowserAutomationWorker:
             raise BrowserSessionError("이 항목은 브라우저에서 직접 처리해야 합니다.")
         mapping = next((item for item in prepared.plan.mappings if item.form_field == form_field), None)
         path = mapping.resume_path if mapping and mapping.resume_path != "unmapped" else "user_input"
+        path = university_block_paths(profile, prepared.plan.mappings, prepared.inspection.fields).get(form_field) or path
         try:
             clean = clean_field(field_name_for_path(path) if path in ALLOWED_RESUME_PATHS else "skills", value)
         except ValueError as error:
@@ -972,6 +1004,13 @@ class BrowserAutomationWorker:
         ):
             text = (await locator.inner_text()).strip()
             return bool(text and not re.fullmatch(r"선택|선택하세요|미선택|choose|select|날짜 선택", text, re.I))
+        if target.widget_kind == "select":
+            # '<option>선택</option>' without a value attribute still reads as a prompt, not an answer.
+            shown = await locator.evaluate(
+                "element => element.selectedIndex === 0 ? (element.options[0].textContent || '') : null"
+            )
+            if shown is not None and _SELECT_PROMPT_RE.fullmatch(shown.strip()):
+                return False
         try:
             return bool((await locator.input_value()).strip())
         except PlaywrightError:

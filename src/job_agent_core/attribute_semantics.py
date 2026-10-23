@@ -44,7 +44,7 @@ def _has_prefix(tokens: list[str], *prefixes: str) -> bool:
 # 경력·가족·자격증·희망 연봉 등은 이력서 범위 밖이므로, 이런 단어가 보이면 연결하지 않습니다.
 _OUT_OF_SCOPE = (
     "work", "career", "experience", "experiences", "company", "employment", "employer",
-    "family", "emergency", "reference", "referee", "recommend", "recommender", "guardian", "parent",
+    "family", "emergency", "reference", "referee", "referral", "referrer", "recommend", "recommender", "guardian", "parent",
     "spouse", "award", "awards", "certificate", "certification", "license", "language", "activity",
     "activities", "training", "project", "projects", "cover", "letter", "question", "answers", "custom",
     "survey", "consent", "agree", "agreement", "terms",
@@ -75,32 +75,41 @@ education_level_from_tokens = _education_level
 # '예/아니요'나 '전공 계열'처럼 이력서에 없는 항목은 일부러 연결하지 않습니다.
 def _education_field(tokens: list[str]) -> tuple[str | None, str]:
     joined = "".join(tokens)
+    if _has(tokens, "day", "night") and not _has(tokens, "birth"):
+        return UNMAPPED, "주/야간 구분은 이력서 항목이 아님"
     if _has(tokens, "yn"):
+        if _has(tokens, "transfer", "trsf"):
+            return "admission_type", "transfer y/n"
         return UNMAPPED, "예/아니요 선택(편입·복수전공 여부 등)은 사용자가 결정"
     if _has(tokens, "thesis", "dissertation", "capstone"):
         return UNMAPPED, "논문·졸업작품은 이력서 항목이 아님"
     if _has(tokens, "major", "majors"):
         if _has(tokens, "classification", "category", "field", "type", "affiliation", "series", "family"):
             return UNMAPPED, "전공 구분/계열은 이력서 항목이 아님"
-        if _has(tokens, "double", "second", "minor", "sub"):
+        # 부전공(minor, sub major)은 이력서에 없습니다. 복수전공만 double_major입니다.
+        if _has(tokens, "minor", "sub"):
+            return UNMAPPED, "부전공은 이력서 항목이 아님"
+        if _has(tokens, "double", "second"):
             return "double_major", "double major"
         return "major", "major"
     if _has(tokens, "minor"):
-        return "double_major", "minor"
+        return UNMAPPED, "부전공은 이력서 항목이 아님"
     if "schoolname" in joined or "institution" in joined or (_has(tokens, "school", "univ", "university") and _has(tokens, "name", "nm")):
         return "school_name", "school name"
     if _has(tokens, "gpa", "grade", "credit") or "gpa" in joined:
         if _has(tokens, "scale", "max", "perfect", "total", "full", "standard"):
             return "gpa_scale", "gpa scale"
         return "gpa", "gpa"
-    if _has(tokens, "score") and _has(tokens, "scale", "max", "perfect", "total"):
-        return "gpa_scale", "gpa scale"
+    if _has(tokens, "score"):
+        if _has(tokens, "scale", "max", "perfect", "total"):
+            return "gpa_scale", "gpa scale"
+        return "gpa", "score"
     if _has(tokens, "degree", "degrees"):
         return "degree", "degree"
-    if _has(tokens, "completion", "graduation", "graduate") and _has(tokens, "status", "type", "state"):
-        return "graduation_status", "graduation status"
     if _has(tokens, "admission", "entrance", "enroll", "enrollment") and _has(tokens, "type", "kind"):
         return "admission_type", "admission type"
+    if _has(tokens, "completion", "graduation", "graduate") and _has(tokens, "status", "type", "state"):
+        return "graduation_status", "graduation status"
     if _has(tokens, "start", "begin", "from", "admission", "entrance", "entered") and not _has(tokens, "type"):
         return "admission_date", "start date"
     if _has(tokens, "end", "to", "until", "graduation", "finish") and not _has(tokens, "status", "type"):
@@ -109,16 +118,40 @@ def _education_field(tokens: list[str]) -> tuple[str | None, str]:
         return "campus_type", "campus"
     if _has(tokens, "region", "location", "area"):
         return "region", "region"
-    if _has(tokens, "day", "night") and not _has(tokens, "birth"):
-        return UNMAPPED, "주/야간 구분은 이력서 항목이 아님"
     return None, ""
 
 
+# 'schlNm', 'testNm', 'lastPostNm'처럼 이름 앞에 다른 명사가 붙으면 그 물건의 이름이지 지원자 이름이 아닙니다.
+_PERSON_NAME_QUALIFIERS = {
+    "kor", "ko", "kr", "korean", "han", "hangul", "full", "first", "given", "last", "family", "sur", "middle",
+    "english", "eng", "en", "roman", "latin", "user", "usr", "applicant", "aplcnt", "apcnt", "aplc", "appl",
+    "person", "prsn", "psn", "member", "mbr", "my", "legal", "real", "cand", "candidate",
+}
+
+
+def _names_something_else(segment: list[str]) -> bool:
+    """True when the field's own segment reads '<noun> name' with a noun that is not about the person."""
+    for index, token in enumerate(segment):
+        if token in {"name", "nm"} and index:
+            return any(item not in _PERSON_NAME_QUALIFIERS for item in segment[:index])
+    return False
+
+
+_SERVICE_TOKENS = ("military", "army", "disability", "disabled", "disable", "handicap", "veteran", "veterans", "patriot", "bohun")
+_SERVICE_DETAIL_TOKENS = (
+    "branch", "position", "rank", "discharge", "start", "end", "date", "period", "grade",
+    "content", "contents", "context", "rate", "ratio", "no", "num", "number", "reason", "kind",
+)
+
+
 # 개인정보 칸(생년월일, 이메일, 전화, 주소, 영문 이름, 병역 등)인지 판단합니다.
-def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
+def _personal_field(tokens: list[str], segment: list[str] | None = None, raw: str = "") -> tuple[str | None, str]:
     joined = "".join(tokens)
     if _has(tokens, "country", "nation", "dial") and _has(tokens, "code"):
         return UNMAPPED, "국가 코드는 이력서 항목이 아님"
+    # 군별·계급·복무기간·보훈번호·장애정도 같은 세부 항목은 이력서에 없습니다(상태 칸만 채움).
+    if _has(tokens, *_SERVICE_TOKENS) and _has(tokens, *_SERVICE_DETAIL_TOKENS):
+        return UNMAPPED, "병역·보훈·장애 세부 항목은 이력서 항목이 아님"
     if _has(tokens, "military", "army"):
         return "person.military_status", "military service"
     if _has(tokens, "disability") or (_has(tokens, "disabled") and _has(tokens, "yn", "status", "type", "info")):
@@ -133,10 +166,15 @@ def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
         return "person.email", "email"
     if _has(tokens, "phone", "mobile", "cellphone", "cell", "tel", "hp", "contact"):
         return "person.phone", "phone"
-    if _has(tokens, "zip", "zipcode", "postal", "postcode", "post"):
+    # 'post' alone is also a job position ('lastPostNm' = 최종직위); only 'post code/no' is a postal code.
+    if _has(tokens, "zip", "zipcode", "postal", "postcode") or (_has(tokens, "post") and _has(tokens, "code", "cd", "no", "num")):
         return "person.postal_code", "postal code"
-    if _has(tokens, "address", "addr"):
-        if _has(tokens, "detail", "dtl", "line", "sub", "extra"):
+    if _has(tokens, "address", "addr", "adr"):
+        if _has(tokens, "city", "town", "state", "province", "county", "country", "region"):
+            return UNMAPPED, "도시·주(州) 칸은 이력서의 한 줄 주소와 형식이 다름"
+        if re.search(r"line_?1(?!\d)", raw, re.I):
+            return "person.address", "address line 1"
+        if _has(tokens, "detail", "dtl", "line", "sub", "extra", "additional"):
             return "person.address_detail", "address detail"
         return "person.address", "address"
     if _has(tokens, "english", "eng", "en", "roman", "latin"):
@@ -147,6 +185,8 @@ def _personal_field(tokens: list[str]) -> tuple[str | None, str]:
         if _has(tokens, "name", "nm", "fullname"):
             return "person.name_en.full", "english name"
         return UNMAPPED, "영문 표기 항목"
+    if _names_something_else(segment or []):
+        return None, ""
     if _has(tokens, "first", "given"):
         return "person.name.given", "given name"
     if _has(tokens, "last", "family", "surname"):
@@ -170,8 +210,6 @@ def infer_from_attributes(name: str | None, element_id: str | None = None) -> At
         return AttributeHint(UNMAPPED, f"attribute: 지원자 이력서 범위가 아닌 영역 ({'.'.join(tokens[:3])})")
 
     level = _education_level(tokens)
-    if level == "high_school":
-        return AttributeHint(UNMAPPED, "attribute: 고등학교 학력은 현재 이력서 범위가 아님")
     if level or _has(tokens, *_EDUCATION_CONTEXT):
         field, reason = _education_field(tokens)
         if field is None:
@@ -182,7 +220,9 @@ def infer_from_attributes(name: str | None, element_id: str | None = None) -> At
             return None  # Let section/label rules decide the education level.
         return AttributeHint(f"education.{level}.{field}", f"attribute: {level} {reason}")
 
-    field, reason = _personal_field(tokens)
+    # The field's own (last) segment, e.g. 'schlNm' in 'rnaLeduDTO.unvsLeduDTOList[0].schlNm'.
+    segment = attribute_tokens(([part for part in re.split(r"[.\[\]:/]+", name or "") if part] or [""])[-1])
+    field, reason = _personal_field(tokens, segment, name or "")
     if field is None:
         return None
     return AttributeHint(field, f"attribute: {reason}")

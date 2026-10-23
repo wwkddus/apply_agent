@@ -35,8 +35,9 @@ from .browser_worker import (
 )
 from .constants import MAX_RESUME_BYTES
 from .korean_scope import enforce_korean_mvp_profile, korean_mvp_values
+from .llm_mapping import DEFAULT_MAPPING_MODEL, LlmFieldMapper, LlmFirstMapper, LlmMappingError, endpoint_from_spec
 from .resume_lookup import lookup_answers
-from .mapping import FormField
+from .mapping import FormField, MappingProvider
 from .names import confirm_name_parts, name_components_usable, normalized_name
 from .planning import set_resume_value
 from .resume_llm import LlmUnavailable, merge_llm_values, ollama_settings, proposed_values, request_ollama, should_use_llm
@@ -63,6 +64,8 @@ class ApiSettings(BaseModel):
     browser_headless: bool = False
     # Local-LLM resume extraction: "off", "auto" (only for sparse rule results) or "always".
     llm_mode: str = "off"
+    # 칸 연결에 쓸 AI('ollama:<model>' 또는 'openai:<model>'). 비우면 규칙만 씁니다.
+    mapping_model: str = ""
     ollama_transport: object | None = None
     allowed_hosts: frozenset[str] = frozenset({"127.0.0.1", "localhost", "[::1]"})
     allowed_origins: frozenset[str] = frozenset(
@@ -162,7 +165,18 @@ def default_settings() -> ApiSettings:
         browser_profile_root=data_dir / "browser_profiles",
         api_token=token,
         llm_mode=os.environ.get("JOB_AGENT_LLM", "auto"),
+        mapping_model=os.environ.get("JOB_AGENT_MAPPING_MODEL", DEFAULT_MAPPING_MODEL),
     )
+
+
+# AI 칸 연결 매퍼. 설정이 비었거나 사용할 수 없으면(키 없음 등) 규칙 매퍼만 씁니다.
+def build_mapper(settings: ApiSettings) -> MappingProvider | None:
+    if not settings.mapping_model or settings.llm_mode == "off":
+        return None
+    try:
+        return LlmFirstMapper(LlmFieldMapper(endpoint_from_spec(settings.mapping_model), timeout=300))
+    except LlmMappingError:
+        return None
 
 
 # 앱 조립(의존성 주입): 저장소·메모리 보관함·계획 작업자·브라우저 작업자를 만들고 API를 등록합니다.
@@ -174,7 +188,7 @@ def create_app(
     settings = settings or default_settings()
     store = SqliteTaskStore(settings.database_path)
     vault = SensitiveTaskVault()
-    worker = KoreanPlanningWorker()
+    worker = KoreanPlanningWorker(build_mapper(settings))
     profile_root = settings.browser_profile_root or settings.database_path.parent / "browser_profiles"
     browser_worker = browser_worker or BrowserAutomationWorker(
         BrowserSessionManager(profile_root, headless=settings.browser_headless),

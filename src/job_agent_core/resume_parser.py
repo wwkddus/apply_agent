@@ -26,8 +26,19 @@ WORD_SUFFIXES = {".doc", ".docx", ".hwp", ".hwpx", ".odt", ".rtf"}
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?<![\d+])(?:\+82[ \t.-]?)?0?1[016789][ \t.-]?\d{3,4}[ \t.-]?\d{4}(?!\d)")
 
-# 학력 구역 제목. 이 줄 다음에 나오는 학력 항목이 대학/대학원 중 어디 것인지 정합니다.
+# 학력 구역 제목. 이 줄 다음에 나오는 학력 항목이 고등학교/편입 전 대학/대학/대학원 중 어디 것인지 정합니다.
 SECTION_LABELS = {
+    "고등학교": "high_school",
+    "고교": "high_school",
+    "high school": "high_school",
+    "편입 전 대학교": "previous_university",
+    "편입 전 대학": "previous_university",
+    "편입전 대학교": "previous_university",
+    "편입전대학교": "previous_university",
+    "대학교(편입 전)": "previous_university",
+    "대학교 (편입 전)": "previous_university",
+    "이전 대학교": "previous_university",
+    "previous university": "previous_university",
     "대학교": "university",
     "대학원": "graduate_school",
     "university": "university",
@@ -37,6 +48,12 @@ SECTION_LABELS = {
 
 # 이력서 라벨 → 개인정보 항목. 같은 의미의 여러 표기(이름/성명/full name 등)를 한곳에 모았습니다.
 PERSONAL_LABELS = {
+    # 모판 이력서는 영문 성과 영문 이름을 따로 적습니다(이때 '영문 이름'은 성을 뺀 이름).
+    "영문 성": "name_en_family",
+    "영문성": "name_en_family",
+    "영어 성": "name_en_family",
+    "english family name": "name_en_family",
+    "english surname": "name_en_family",
     "영문 이름": "name_en",
     "영문이름": "name_en",
     "영문 성명": "name_en",
@@ -148,8 +165,12 @@ EDUCATION_LABELS = {
     "만점": "gpa_scale",
     "gpa scale": "gpa_scale",
     "지역": "region",
+    "소재지": "region",
     "region": "region",
+    "location": "region",
 }
+# 고등학교 구역에서만 쓰는 라벨: '계열'(문과/이과, 인문계/자연계)은 고등학교의 전공 칸으로 봅니다.
+HIGH_SCHOOL_LABELS = {"계열": "major", "고교 계열": "major", "track": "major"}
 
 
 # PDF 내용 검사와 텍스트 추출. 파일은 저장하지 않습니다.
@@ -218,9 +239,13 @@ def _split_label_value(line: str) -> tuple[str, str] | None:
     if match:
         return _normal_label(match.group(1)), match.group(2).strip()
     normalized = line.strip()
-    for label in sorted({*PERSONAL_LABELS, *EDUCATION_LABELS}, key=len, reverse=True):
+    for label in sorted({*PERSONAL_LABELS, *EDUCATION_LABELS, *HIGH_SCHOOL_LABELS}, key=len, reverse=True):
         if normalized.casefold().startswith(label.casefold() + " "):
-            return label.casefold(), normalized[len(label) :].strip()
+            value = normalized[len(label) :].strip()
+            # '병역 · 보훈 · 장애' 같은 구역 제목은 값이 아닙니다.
+            if re.match(r"[·・/&,+|]", value):
+                return None
+            return label.casefold(), value
     return None
 
 
@@ -257,7 +282,7 @@ def extract_resume_profile(text: str) -> dict[str, object]:
     def record(scope: str, field: str, value: str, method: str, confidence: float) -> None:
         nonlocal skills
         try:
-            clean = clean_field("full" if field in {"name", "name_en"} else field, value)
+            clean = clean_field("full" if field in {"name", "name_en"} else "family" if field == "name_en_family" else field, value)
         except ValueError:
             warnings.append(f"{field}: 형식 검사를 통과하지 못해 자동 입력에서 제외했습니다")
             return
@@ -293,7 +318,7 @@ def extract_resume_profile(text: str) -> dict[str, object]:
             label = _normal_label(line)
             value = ""
             consumed = 1
-            if label in PERSONAL_LABELS or label in EDUCATION_LABELS:
+            if label in PERSONAL_LABELS or label in EDUCATION_LABELS or (section == "high_school" and label in HIGH_SCHOOL_LABELS):
                 if index + 1 < len(lines):
                     next_label = _normal_label(lines[index + 1])
                     if next_label not in PERSONAL_LABELS and next_label not in EDUCATION_LABELS and next_label not in SECTION_LABELS:
@@ -302,6 +327,8 @@ def extract_resume_profile(text: str) -> dict[str, object]:
         if value and label in PERSONAL_LABELS:
             field = PERSONAL_LABELS[label]
             record("skills" if field == "skills" else "personal", field, value, "label_match", 0.9)
+        elif value and section == "high_school" and label in HIGH_SCHOOL_LABELS:
+            record("high_school", HIGH_SCHOOL_LABELS[label], value, "label_match", 0.9)
         elif value and label in EDUCATION_LABELS:
             level = section if section in EDUCATION_LEVELS else "university"
             confidence = 0.9 if section in EDUCATION_LEVELS else 0.6
@@ -322,8 +349,14 @@ def extract_resume_profile(text: str) -> dict[str, object]:
             record("personal", "phone", match.group(0), "regex", 0.85)
 
     name = infer_name_parts(personal.pop("name", ""))
+    latin_family = personal.pop("name_en_family", "")
     latin = personal.pop("name_en", "") or _romanized_name_line(lines, name)
-    name_en = infer_latin_name(latin, name) if latin else None
+    if latin_family and latin and " " not in latin:
+        # '영문 성 Hong' + '영문 이름 Gildong': 순서가 적혀 있으므로 추측하지 않습니다.
+        name_en = PersonName(full=f"{latin_family} {latin}", family=latin_family, given=latin, order="family_given",
+                             split_confidence=1.0, split_method="labeled_parts", confirmed=True)
+    else:
+        name_en = infer_latin_name(latin, name) if latin else None
     records = []
     for level in EDUCATION_LEVELS:
         values = education[level]

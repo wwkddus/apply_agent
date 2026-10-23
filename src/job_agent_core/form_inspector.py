@@ -90,6 +90,14 @@ INSPECT_SCRIPT = r"""
     }
     return "";
   };
+  // Korean forms often lay out '<dt>성명</dt><dd><input></dd>' or '<th>성명</th><td>..</td><th>생년월일</th><td>..</td>'.
+  // The caption is the dt/th right before the cell holding the field, not the first one in the list or row.
+  const cellCaption = (element) => {
+    const cell = element.closest("dd, td");
+    let node = cell ? cell.previousElementSibling : null;
+    while (node && !["DT", "TH"].includes(node.tagName)) node = node.previousElementSibling;
+    return node ? clean(node.innerText || node.textContent || "") : "";
+  };
   const labelFor = (element) => {
     const aria = clean(element.getAttribute("aria-label"));
     if (aria && !genericAria.test(aria)) return aria;
@@ -105,6 +113,8 @@ INSPECT_SCRIPT = r"""
     }
     const wrapping = element.closest("label");
     if (wrapping) return clean(wrapping.innerText || wrapping.textContent || "");
+    const caption = cellCaption(element);
+    if (caption) return caption;
     const row = element.closest("fieldset, [role=group], tr, .row, .field, .form-group");
     if (row) {
       const heading = row.querySelector("legend, label, [data-label], .label, th");
@@ -114,7 +124,7 @@ INSPECT_SCRIPT = r"""
     if (nearby) return nearby;
     const question = ancestorText(element);
     if (question) return question;
-    return clean(element.getAttribute("placeholder") || element.getAttribute("name") || element.id);
+    return clean(element.getAttribute("title") || element.getAttribute("placeholder") || element.getAttribute("name") || element.id);
   };
   // A field without a name (e.g. a button group) reports the data-model names of the other fields in the
   // nearest block that has any, so '입학구분' in a graduate-school block is not read as the university one.
@@ -142,6 +152,15 @@ INSPECT_SCRIPT = r"""
       const heading = section.querySelector("h1, h2, h3, [role=heading]");
       if (heading) return clean(heading.innerText || heading.textContent || "");
     }
+    // Otherwise the nearest heading written before the field's block ('<h4>고등학교</h4><dl>..</dl>').
+    let node = element;
+    for (let depth = 0; node && node !== document.body && depth < 8; depth += 1, node = node.parentElement) {
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (/^H[1-6]$/.test(sibling.tagName) || sibling.getAttribute("role") === "heading") {
+          return clean(sibling.innerText || sibling.textContent || "").slice(0, 80);
+        }
+      }
+    }
     return "";
   };
   const groupLabelsFor = (element) => {
@@ -167,11 +186,18 @@ INSPECT_SCRIPT = r"""
     value: clean(option.value),
     text: clean(option.textContent),
   }));
+  const SELECT_PROMPT = /^[-=\s]*([^-=]{0,20}\s)?(선택(하세요|해\s*주세요|하십시오)?|미선택|choose|select( one)?|please select)[-=\s.]*$/i;
   const selectedValuePresent = (element, kind) => {
     if (kind === "radio_group") return Boolean(element.checked);
     if (element.hasAttribute("data-placeholder-shown") || element.getAttribute("data-placeholder") === "true") return false;
     // A calendar trigger shows its date as text; a label such as "날짜 선택" has no digits.
     if (kind === "custom_date_picker" && element.tagName === "BUTTON") return /\d/.test(element.innerText || element.textContent || "");
+    if (kind === "select") {
+      const option = element.selectedIndex >= 0 ? element.options[element.selectedIndex] : null;
+      if (!option || !clean(option.value)) return false;
+      // '<option>선택</option>' without a value still reads as a prompt, not an answer.
+      return !(element.selectedIndex === 0 && SELECT_PROMPT.test(clean(option.textContent)));
+    }
     if (kind === "custom_select") {
       const text = clean(element.innerText || element.textContent || element.getAttribute("data-value"));
       return Boolean(text && !/^(선택|선택하세요|미선택|choose|select)$/i.test(text));
@@ -316,7 +342,7 @@ INSPECT_SCRIPT = r"""
     radios.forEach((radio) => radio.setAttribute(FIELD_ATTR, key));
     const fieldset = first.closest("fieldset, [role=radiogroup]");
     const legend = fieldset ? fieldset.querySelector("legend, [role=heading]") : null;
-    const label = clean((legend && (legend.innerText || legend.textContent)) || radioGroupHeading(radios) || labelFor(first));
+    const label = clean((legend && (legend.innerText || legend.textContent)) || cellCaption(first) || radioGroupHeading(radios) || labelFor(first));
     if (isSensitive(first, label)) continue;
     // Radios without distinct values (all "on") are chosen by position.
     const distinct = new Set(radios.map((radio) => radio.value)).size === radios.length;

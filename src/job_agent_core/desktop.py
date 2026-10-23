@@ -103,7 +103,7 @@ RESUME_LABELS = {
     "person.veteran_status": "보훈 여부",
     "skills": "보유 기술",
 }
-EDUCATION_LABELS = {"university": "대학교", "graduate_school": "대학원"}
+EDUCATION_LABELS = {"high_school": "고등학교", "previous_university": "편입 전 대학", "university": "대학교", "graduate_school": "대학원"}
 EDUCATION_FIELD_LABELS = {
     "school_name": "학교명", "campus_type": "본교/분교", "degree": "학위", "major": "전공", "double_major": "복수전공",
     "admission_type": "입학구분", "admission_date": "입학일", "graduation_status": "졸업구분",
@@ -135,6 +135,8 @@ def resume_label(path: str) -> str:
     if path in RESUME_LABELS:
         return RESUME_LABELS[path]
     parts = path.split(".")
+    if path == "education.high_school.major":
+        return "고등학교 계열"
     if len(parts) == 3 and parts[0] == "education":
         return f"{EDUCATION_LABELS.get(parts[1], parts[1])} {EDUCATION_FIELD_LABELS.get(parts[2], parts[2])}"
     return path

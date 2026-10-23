@@ -49,7 +49,7 @@ class KoreanScopeTests(unittest.TestCase):
         self.assertEqual(by_key["u"].resume_path, "education.university.admission_type")
         self.assertEqual(by_key["g"].resume_path, "education.graduate_school.admission_type")
         self.assertEqual((by_key["u"].status, by_key["g"].status), ("auto_accepted", "auto_accepted"))
-        self.assertEqual(by_key["h"].resume_path, "unmapped")
+        self.assertEqual(by_key["h"].resume_path, "education.high_school.admission_type")
         self.assertEqual(by_key["m"].resume_path, "education.university.degree")
 
     def test_thesis_or_graduation_work_is_not_the_graduation_date(self):

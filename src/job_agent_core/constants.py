@@ -17,8 +17,11 @@ PERSONAL_FIELDS = (
     "veteran_status",
 )
 
-# 지원하는 학력 단계(대학, 대학원)와 각 학력에서 읽는 항목들.
-EDUCATION_LEVELS = ("university", "graduate_school")
+# 지원하는 학력 단계와 각 학력에서 읽는 항목들. 시간 순서(고등학교 → 편입 전 대학 → 대학 → 대학원)입니다.
+# previous_university는 편입한 경우 편입 전 대학(전문대 포함)이고, university는 마지막(졸업) 대학입니다.
+EDUCATION_LEVELS = ("high_school", "previous_university", "university", "graduate_school")
+# 칸 연결(규칙·LLM)이 직접 쓰는 단계. 편입 전 대학은 페이지의 두 번째 대학 블록을 보고 입력 계획에서 정합니다.
+MAPPED_EDUCATION_LEVELS = ("high_school", "university", "graduate_school")
 EDUCATION_FIELDS = (
     "school_name",
     "campus_type",

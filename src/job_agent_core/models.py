@@ -163,7 +163,7 @@ class PersonalInfo(BaseModel):
 class EducationRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    education_level: Literal["university", "graduate_school"]
+    education_level: Literal["high_school", "previous_university", "university", "graduate_school"]
     school_name: str = ""
     campus_type: str = ""
     degree: str = ""

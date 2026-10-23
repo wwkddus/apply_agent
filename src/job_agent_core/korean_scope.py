@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from .attribute_semantics import UNMAPPED, attribute_tokens, education_level_from_tokens, infer_from_attributes
-from .constants import ALLOWED_RESUME_PATHS, EDUCATION_FIELDS, EDUCATION_LEVELS
+from .constants import ALLOWED_RESUME_PATHS, DATE_PATHS, EDUCATION_FIELDS, EDUCATION_LEVELS
 from .mapping import FormField, INSTRUCTION_RE, MappingRecord, MappingResult
 from .models import PersonalInfo, ResumeProfile
 
@@ -41,8 +41,8 @@ KOREAN_MVP_FIELD_LABELS = {
 
 # 학력 라벨 규칙(위에서부터 먼저 맞는 것을 사용). '학교'만 있는 넓은 규칙은 맨 끝에 둡니다.
 _SITE_EDU_RULES = (
-    ("double_major", r"복수\s*전공|부\s*전공|double\s*major|minor"),
-    ("admission_type", r"입학\s*구분|admission\s*type"),
+    ("double_major", r"복수\s*(\(\s*이중\s*\))?\s*전공|이중\s*전공|double\s*major"),
+    ("admission_type", r"입학\s*구분|편입\s*여부|admission\s*type|transfer\s*(status|y/?n)"),
     ("graduation_status", r"졸업\s*(구분|여부|상태)|graduation\s*status|enrollment\s*status|학적\s*(상태|구분)|재학\s*(상태|여부)"),
     ("gpa_scale", r"만점|gpa\s*scale"),
     (
@@ -52,7 +52,7 @@ _SITE_EDU_RULES = (
     ("degree", r"학위|degree"),
     ("major", r"전공|학과|major|field\s*of\s*study|department"),
     ("admission_date", r"입학|admission|enrol"),
-    ("graduation_date", r"졸업|graduat"),
+    ("graduation_date", r"졸업|graduat(?!e_?\s*school)"),
     ("gpa", r"평점|학점|gpa"),
     ("campus_type", r"본교|분교|campus"),
     ("region", r"지역|소재지|region|location"),
@@ -85,6 +85,38 @@ _GRAD_RE = re.compile(r"대학원|graduate\s*(school|level|program)|postgraduate
 _HIGHEST_RE = re.compile(r"최종\s*학력|highest\s*(level\s*of\s*)?education|last(est)?\s*education|final\s*education", re.I)
 # 논문·졸업작품은 '졸업'이 들어 있어도 졸업일이 아니며, 이력서에 없는 항목입니다(SK 실측).
 _NOT_RESUME_EDU_RE = re.compile(r"논문|졸업\s*(작품|과제|전시|프로젝트)|thesis|dissertation|capstone", re.I)
+# 고등학교 블록/라벨. 고등학교의 '계열'(문과/이과, 인문계/자연계)은 고등학교 전공 칸으로 봅니다.
+# 이력서 학력 범위 밖: 어학 시험(‘어학점수’의 ‘학점’은 학점이 아님), 주/야간, 이수·졸업기준 학점.
+_HIGH_SCHOOL_RE = re.compile(r"고등\s*학교|고교|high\s*school", re.I)
+_TRACK_RE = re.compile(r"계열|문\s*[·/]?\s*이과|track", re.I)
+_LANGUAGE_TEST_RE = re.compile(r"어학|외국어|토익|토플|toeic|toefl|opic|language\s*(test|score)", re.I)
+_DAY_NIGHT_RE = re.compile(r"주\s*/?\s*야간|day\s*/\s*night", re.I)
+_CREDITS_RE = re.compile(r"이수\s*학점|취득\s*학점|졸업\s*(기준|이수)\s*학점|credits?\s*(earned|completed|required)", re.I)
+# 이력서에 없는 개인 항목: 성별(「이름(성별)」처럼 이름 칸과 함께 쓰인 라벨은 제외), 경력 서술.
+_GENDER_RE = re.compile(r"성별|gender|\bsex\b", re.I)
+_GENDER_OPTIONS = {"남", "여", "남성", "여성", "남자", "여자", "male", "female"}
+_CAREER_TEXT_RE = re.compile(
+    r"경력\s*(기술|사항|내용|설명)|(직무|업무|담당)\s*(내용|기술|설명)|담당\s*업무|job\s*description|responsibilit", re.I
+)
+_MINOR_RE = re.compile(r"부\s*전공|\bminor\b", re.I)
+# 학교 블록의 국내/해외 구분(소재지가 아님)과 한 개짜리 라디오(「최종졸업(예정)대학」처럼 이 블록을 고르는 표시).
+_DOMESTIC_RE = re.compile(r"국내\s*[·・/]?\s*(외|해외)|domestic\s*/\s*(overseas|abroad)", re.I)
+_DOMESTIC_OPTIONS = {"국내", "해외"}
+# 학력 종류를 고르는 선택 칸('구분': 고등학교/전문대학/대학교/대학원)은 최종 학력으로 봅니다.
+_LEVEL_OPTION_RE = (
+    re.compile(r"고등\s*학교|고교|검정고시"),
+    re.compile(r"전문\s*대"),
+    re.compile(r"^대학교|^대학\s*\(4"),
+    re.compile(r"대학원|석사|박사"),
+)
+_FIRST_NAME_RE = re.compile(r"first\s*name|given\s*name|이름\s*\(\s*名", re.I)
+_LAST_NAME_RE = re.compile(r"last\s*name|family\s*name|surname", re.I)
+_SERVICE_DETAIL_RE = re.compile(
+    r"군\s*별|계급|병과|제대\s*구분|전역|입대|복무\s*기간|보훈\s*(번호|비율|등급|가점)|장애\s*(정도|등급|내용|유형|종류|부위)"
+)
+# 연도/월이 따로 나뉜 날짜 칸('입학연도' + '입학월').
+_YEAR_PART_RE = re.compile(r"(연|년)\s*도?$|year$|yyyy$", re.I)
+_MONTH_PART_RE = re.compile(r"(?<!년)(?<!연)월$|month$|mm$", re.I)
 _UNIV_RE = re.compile(r"대학교|대학|학부|undergraduate|bachelor|학사|university|college", re.I)
 
 
@@ -101,11 +133,11 @@ def _route(record: MappingRecord, field: FormField) -> MappingRecord:
 
 # Contact details of someone other than the applicant must never receive the applicant's values.
 # 본인이 아닌 사람(비상연락처·보호자·추천인 등)의 칸. 지원자 정보가 들어가면 안 됩니다.
-_THIRD_PARTY_RE = re.compile(r"비상|긴급|보호자|추천인|가족|부모|배우자|emergency|guardian|referee|reference|parent|spouse", re.I)
+_THIRD_PARTY_RE = re.compile(r"비상|긴급|보호자|추천인|추천\s*직원|가족|부모|배우자|emergency|guardian|referee|referr|reference|parent|spouse", re.I)
 _LABEL_NOISE_RE = re.compile(r"\(?\s*필수\s*\)?|\*|[:：()\[\]]")
-_SCRIPT_QUALIFIER_RE = re.compile(r"영문|한자|한글|국문|english|korean|chinese")
+_SCRIPT_QUALIFIER_RE = re.compile(r"영문|한자|한문|한글|국문|english|korean|chinese")
 _ENGLISH_RE = re.compile(r"영문|english")
-_OTHER_SCRIPT_RE = re.compile(r"한자|chinese")
+_OTHER_SCRIPT_RE = re.compile(r"한자|한문|chinese")
 # 이름 칸 라벨 → 역할(성/이름/전체 이름).
 _NAME_ROLES = {
     "성": "family",
@@ -142,6 +174,9 @@ def _bare(value: str | None) -> str:
 def _name_role(field: FormField) -> str | None:
     """Classify a name field from its own label, using the placeholder only to refine it."""
     label = _bare(field.label)
+    # '이름(영문)_여권명': a passport name is the romanized name.
+    passport = "여권" in label
+    label = re.sub(r"[_\-/]*여권\s*(상|명|표기|이름)*.*$", "", label) + ("영문" if passport and not _ENGLISH_RE.search(label) else "")
     core = _SCRIPT_QUALIFIER_RE.sub("", label)
     if re.search(r"[가-힣]", core):
         # '(영문 이름) Gildong': a romanized example next to a Hangul label is not part of the label.
@@ -188,6 +223,109 @@ def _phone_tail(field: FormField, record: MappingRecord, head: FormField) -> boo
     return record.resume_path == "unmapped" and (label in {"", _bare(head.label)} or re.fullmatch(r"[-~\d]*", label) is not None)
 
 
+# 이메일을 「아이디 @ 도메인」으로 나눠 받는 칸. 아이디 칸 힌트 / 도메인 칸 힌트 / 다시 입력(확인) 칸.
+_EMAIL_LOCAL_RE = re.compile(r"아이디|email_?1\b|e?mail_?id|\bid\b|local", re.I)
+_EMAIL_DOMAIN_RE = re.compile(r"도메인|domain|email_?2\b|주소|@", re.I)
+_EMAIL_CONFIRM_RE = re.compile(r"확인|재입력|다시|confirm|repeat", re.I)
+_EMAIL_DIRECT_RE = re.compile(r"직접\s*입력|직접|self|기타|other", re.I)
+
+
+def _email_text(field: FormField) -> str:
+    return " ".join(part for part in (field.label, field.placeholder or "", field.name or "", field.element_id or "") if part)
+
+
+# 도메인 고르기 선택 칸(naver.com 같은 선택지나 「직접입력」이 있음).
+def _email_domain_select(field: FormField) -> bool:
+    return field.widget_kind == "select" and any(
+        re.search(r"\.(com|net|kr|co\.kr)$", option.text.strip(), re.I) or _EMAIL_DIRECT_RE.search(option.text)
+        for option in field.options
+    )
+
+
+# 대학 블록 번호: name의 목록 위치(…List[0], universities.0), 라벨의 'N번째 대학교', 둘 다 없으면 같은 항목이 다시 나올 때 새 블록.
+# 전문대학 목록과 대학교 목록이 각각 [0]부터 시작하므로 번호만이 아니라 목록 이름까지 블록 열쇠로 씁니다.
+_NTH_RE = re.compile(r"(\d+)\s*번째\s*(\S*)")
+_NAME_BLOCK_RE = re.compile(r"^(.*?(?:\[\d+\]|\.\d+(?=\.|$)))")
+_UNIVERSITY_PREFIX = "education.university."
+
+
+def _level_of(text: str) -> str | None:
+    if _GRAD_RE.search(text):
+        return "graduate_school"
+    if _UNIV_RE.search(text):
+        return "university"
+    return "high_school" if _HIGH_SCHOOL_RE.search(text) else None
+
+
+def _group_level(field: FormField) -> str | None:
+    """The education level the neighbouring labels agree on ('고등학교 졸업일자', '대학원(석사) 입학년월'), if any."""
+    levels = {_level_of(label) for label in field.group_labels} - {None}
+    return levels.pop() if len(levels) == 1 else None
+
+
+def _label_instance(field: FormField) -> str | None:
+    match = _NTH_RE.search(field.label)
+    return f"{match.group(1)} {match.group(2)}" if match else None
+
+
+def _name_instance(field: FormField) -> str | None:
+    match = _NAME_BLOCK_RE.match(field.name or "")
+    return match.group(1) if match else None
+
+
+def assign_university_instances(fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
+    """Number the university blocks of a page (0, 1, ...) in page order so a second block is not a duplicate of the first."""
+    indexes = [index for index, record in enumerate(records) if record.resume_path.startswith(_UNIVERSITY_PREFIX)]
+    if not indexes:
+        return records
+    numbers: list[int] = []
+    # 한 가지 표기(name 번호 또는 라벨 'N번째')가 모든 칸에 있을 때만 그것을 쓰고, 섞여 있으면 반복으로 판단합니다.
+    for reader in (_name_instance, _label_instance):
+        explicit = [reader(fields[index]) for index in indexes]
+        if all(value is not None for value in explicit):
+            ranks = {value: rank for rank, value in enumerate(dict.fromkeys(explicit))}
+            numbers = [ranks[value] for value in explicit]
+            break
+    if not numbers:
+        # 블록의 첫 항목(보통 학교명)이 다시 나오면 새 블록입니다. 복수전공·부전공처럼 블록 안에서 겹치는 항목은 나누지 않습니다.
+        first = (records[indexes[0]].resume_path, records[indexes[0]].part)
+        block = 0
+        for position, index in enumerate(indexes):
+            if position and (records[index].resume_path, records[index].part) == first:
+                block += 1
+            numbers.append(block)
+    updated = list(records)
+    for index, number in zip(indexes, numbers):
+        updated[index] = records[index].model_copy(update={"instance": number})
+    return updated
+
+
+# 같은 이력서 값이 여러 칸에 자동 연결되면 뒤의 것은 사람 확인으로 돌립니다(대학 블록 번호·칸 부분이 다르면 중복 아님).
+def finalize_mappings(fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
+    records = assign_university_instances(fields, records)
+    whole: set[tuple[str, int | None]] = set()
+    parts: set[tuple[str, int | None, str]] = set()
+    result: list[MappingRecord] = []
+    for record in records:
+        path, part, block = record.resume_path, record.part, record.instance
+        # A value used whole conflicts with any segmented use of the same value and vice versa.
+        duplicate = (path, block) in whole or (part is None and any(item[:2] == (path, block) for item in parts)) \
+            or (path, block, part) in parts
+        if record.status == "auto_accepted" and duplicate:
+            record = record.model_copy(update={"status": "needs_human_review", "reason": "동일한 이력서 항목에 중복 매핑됨"})
+        elif record.status == "auto_accepted":
+            if part is None:
+                whole.add((path, block))
+            else:
+                parts.add((path, block, part))
+        result.append(record)
+    return result
+
+
+# 어떤 규칙에도 걸리지 않은 칸의 이유. LLM 보조(HybridMapper)는 이 칸만 모델에 물어봅니다.
+NO_RULE_REASON = "fallback: no rule matched"
+
+
 # 한국 사이트용 규칙 매퍼(Before 버전의 노트북 규칙을 옮겨 와 개선). LLM 없이 항상 같은 결과.
 class KoreanMvpMapper:
     """Deterministic mapper ported from G001_장연_AIAgent.ipynb fallback rules."""
@@ -198,26 +336,32 @@ class KoreanMvpMapper:
         records = [self._map_one(field) for field in fields]
         records = self._apply_name_structure(fields, records)
         records = self._apply_phone_segments(fields, records)
+        records = self._apply_email_segments(fields, records)
+        records = self._apply_date_segments(fields, records)
         records = self._apply_third_party_guard(fields, records)
         records = [_route(record, field) for record, field in zip(records, fields)]
-        whole: set[str] = set()
-        parts: set[tuple[str, str]] = set()
-        result: list[MappingRecord] = []
-        for record in records:
-            path, part = record.resume_path, record.part
-            # A value used whole conflicts with any segmented use of the same value and vice versa.
-            duplicate = path in whole or (part is None and any(item[0] == path for item in parts)) or (path, part) in parts
-            if record.status == "auto_accepted" and duplicate:
-                record = record.model_copy(
-                    update={"status": "needs_human_review", "reason": "동일한 이력서 항목에 중복 매핑됨"}
-                )
-            elif record.status == "auto_accepted":
-                if part is None:
-                    whole.add(path)
-                else:
-                    parts.add((path, part))
-            result.append(record)
+        result = finalize_mappings(fields, records)
         return MappingResult(mappings=result)
+
+    # '입학연도' 선택 + '입학월' 선택처럼 나뉜 날짜는 연도 칸과 월 칸에 각각 그 부분만 넣습니다.
+    def _apply_date_segments(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
+        updated = list(records)
+        for index in range(len(fields) - 1):
+            first, second = fields[index], fields[index + 1]
+            path = records[index].resume_path
+            if (
+                path in DATE_PATHS
+                and records[index + 1].resume_path == path
+                and records[index].part is None
+                and _adjacent(first, second, 1, 1)
+                and _YEAR_PART_RE.search(_bare(first.label))
+                and _MONTH_PART_RE.search(_bare(second.label))
+            ):
+                for offset, part in ((0, "year"), (1, "month")):
+                    updated[index + offset] = records[index + offset].model_copy(
+                        update={"part": part, "reason": f"structure: 날짜 {part} 칸", "confidence": max(records[index + offset].confidence, 0.9)}
+                    )
+        return updated
 
     # 비상연락처·보호자 영역의 개인정보 칸은 연결을 해제합니다(내 정보가 남의 칸에 들어가지 않게).
     def _apply_third_party_guard(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
@@ -284,6 +428,34 @@ class KoreanMvpMapper:
             index += 1
         return updated
 
+    # 아이디 / 도메인 (/ 도메인 선택)으로 나뉜 이메일 입력을 찾아 local·domain·domain_select 부분을 지정합니다.
+    def _apply_email_segments(self, fields: list[FormField], records: list[MappingRecord]) -> list[MappingRecord]:
+        updated = list(records)
+        index = 0
+        while index + 1 < len(fields):
+            path = records[index].resume_path
+            head, second = fields[index], fields[index + 1]
+            if (
+                path in {"person.email", "person.email_secondary"}
+                and records[index + 1].resume_path == path
+                and _adjacent(head, second, 1, 1)
+                and not _EMAIL_CONFIRM_RE.search(_email_text(second))
+                and (_EMAIL_LOCAL_RE.search(_email_text(head)) or _EMAIL_DOMAIN_RE.search(_email_text(second)))
+                and second.widget_kind in {"text", "select", "custom_combobox"}
+            ):
+                parts = [("local", head), ("domain_select" if _email_domain_select(second) else "domain", second)]
+                third = fields[index + 2] if index + 2 < len(fields) else None
+                if third is not None and _adjacent(second, third, 1, 1) and _email_domain_select(third) and parts[1][0] == "domain":
+                    parts.append(("domain_select", third))
+                for offset, (part, field) in enumerate(parts):
+                    updated[index + offset] = self._mapped(field, path, 0.92, f"structure: 이메일 {part} 칸").model_copy(
+                        update={"part": part}
+                    )
+                index += len(parts)
+                continue
+            index += 1
+        return updated
+
     # 칸 하나 1차 연결. 순서: 지시문 의심 → 제외 / 체크박스 → 제외(동의는 사람이) / 최종 학력
     # → 속성(name/id) 판단 → 학력 라벨 규칙 → 개인정보 라벨 규칙 → 없으면 미연결.
     # 라벨이 너무 길면(질문 문장 등) 신뢰도를 낮춰 사람 확인으로 보냅니다.
@@ -299,24 +471,63 @@ class KoreanMvpMapper:
             return self._unmapped(field, "fallback: checkbox (consent/decision) is never mapped to resume data")
         if _HIGHEST_RE.search(raw):
             return self._mapped(field, "education.highest_level", 0.9, "fallback: 최종 학력 (이력서 학력에서 계산)")
+        option_texts = {option.text.strip() for option in field.options}
+        if sum(any(pattern.search(text) for text in option_texts) for pattern in _LEVEL_OPTION_RE) >= 3:
+            return self._mapped(field, "education.highest_level", 0.9, "fallback: 학력 종류 선택 → 최종 학력")
+        if _DOMESTIC_RE.search(field.label) or (option_texts and option_texts - {"선택", ""} == _DOMESTIC_OPTIONS):
+            return self._unmapped(field, "fallback: 국내·해외 구분은 이력서 항목이 아님")
+        gender_options = {re.sub(r"^성별\s*", "", text).casefold() for text in option_texts} - {"선택", ""}
+        if (_GENDER_RE.search(field.label) and not re.search(r"이름|성명|name", field.label, re.I)) or (
+            gender_options and gender_options <= _GENDER_OPTIONS
+        ):
+            return self._unmapped(field, "fallback: 성별은 이력서 항목이 아님")
+        if _CAREER_TEXT_RE.search(field.label):
+            return self._unmapped(field, "fallback: 경력 서술은 이력서 항목이 아님(보유기술 아님)")
+        if field.widget_kind == "radio_group" and len(field.options) == 1:
+            return self._unmapped(field, "fallback: 선택지가 하나인 라디오는 블록 선택 표시")
         hint = infer_from_attributes(field.name, field.element_id)
         if hint is not None:
             # A structured name/id path outranks a visual label that may belong to a neighbouring column.
             if hint.resume_path == UNMAPPED:
                 return self._unmapped(field, hint.reason)
-            return self._mapped(field, hint.resume_path, 0.95, hint.reason)
+            path = hint.resume_path
+            # 'englishName' + 라벨 '영문 이름 (First Name)': 라벨이 이름의 어느 부분인지 더 정확히 말합니다.
+            if path in {"person.name.full", "person.name_en.full"}:
+                if _FIRST_NAME_RE.search(field.label):
+                    path = path.replace(".full", ".given")
+                elif _LAST_NAME_RE.search(field.label):
+                    path = path.replace(".full", ".family")
+            return self._mapped(field, path, 0.95, hint.reason)
 
         if _NOT_RESUME_EDU_RE.search(raw):
             return self._unmapped(field, "fallback: 논문·졸업작품은 이력서 항목이 아님(졸업일 아님)")
+        if _LANGUAGE_TEST_RE.search(f"{raw} {field.section}"):
+            return self._unmapped(field, "fallback: 어학 시험 항목은 학력이 아님")
+        if _DAY_NIGHT_RE.search(raw):
+            return self._unmapped(field, "fallback: 주/야간 구분은 이력서 항목이 아님")
+        if _CREDITS_RE.search(raw):
+            return self._unmapped(field, "fallback: 이수·졸업기준 학점은 이력서 항목이 아님")
+        if _MINOR_RE.search(field.label):
+            return self._unmapped(field, "fallback: 부전공은 이력서 항목이 아님")
+        if _SERVICE_DETAIL_RE.search(field.label):
+            return self._unmapped(field, "fallback: 병역·보훈·장애 세부 항목은 이력서 항목이 아님")
 
         lowered = raw.casefold()
         context = f"{field.section} {field.label}"
+        if _TRACK_RE.search(field.label):
+            # 고등학교의 계열(문과/이과)은 이력서에 있지만, 대학의 전공 계열·학과 계열은 이력서 항목이 아닙니다.
+            if _HIGH_SCHOOL_RE.search(context) and not _UNIV_RE.search(context):
+                return self._mapped(field, "education.high_school.major", 0.9, "fallback: 고등학교 계열")
+            return self._unmapped(field, "fallback: 전공 계열은 이력서 항목이 아님")
         long_label = len(field.label.split()) > 8
         education = next((suffix for suffix, pattern in _SITE_EDU_RULES if re.search(pattern, lowered, re.I)), None)
         personal = next((path for path, pattern in _SITE_PERSONAL_RULES if re.search(pattern, lowered, re.I)), None)
         school_word_present = re.search(r"학교|school|university|college|대학", lowered, re.I)
 
-        education_context = re.search(r"학력|학교|대학|전공|school|univ|college|educat|academic", f"{lowered} {field.section}", re.I)
+        group_level = _group_level(field)
+        education_context = group_level or re.search(
+            r"학력|학교|대학|전공|school|univ|college|educat|academic", f"{lowered} {field.section}", re.I
+        )
         if education in _GENERIC_EDU_FIELDS and not education_context:
             # '지역' or 'campus' alone (e.g. 희망 근무 지역) is not an education item.
             education = None
@@ -326,6 +537,8 @@ class KoreanMvpMapper:
                 if _GRAD_RE.search(context)
                 else "university"
                 if _UNIV_RE.search(context)
+                else "high_school"
+                if _HIGH_SCHOOL_RE.search(context)
                 else None
             )
             # 라벨·영역에 단서가 없으면, 같은 블록 옆 칸들의 name(예: graduateSchools.0.completionStatus)이
@@ -334,10 +547,10 @@ class KoreanMvpMapper:
             if level is None:
                 levels = {education_level_from_tokens(attribute_tokens(name)) for name in field.context_names} - {None}
                 block = levels.pop() if len(levels) == 1 else None
-            if block == "high_school":
-                return self._unmapped(field, "structure: 고등학교 학력 블록은 현재 이력서 범위가 아님")
             if block:
                 level = block
+            elif level is None and group_level:
+                level, block = group_level, group_level
             # The notebook defaults an unknown education level to university. Keep that
             # mapping, but let an explicit short education label enter the deterministic
             # baseline instead of making every sectionless real-site field non-actionable.
@@ -356,7 +569,7 @@ class KoreanMvpMapper:
                 f"fallback: personal rule '{personal.rsplit('.', 1)[-1]}'"
                 + (" (long label)" if long_label else ""),
             )
-        return self._unmapped(field, "fallback: no rule matched")
+        return self._unmapped(field, NO_RULE_REASON)
 
     # 연결 결과 / 미연결 결과를 만드는 도우미.
     @staticmethod

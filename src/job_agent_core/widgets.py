@@ -99,9 +99,17 @@ OPTION_SYNONYMS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("비대상", "해당없음", "비해당", "대상아님", "없음", "비보훈", "notapplicable", "no", "none", "n/a"),
         ("대상", "해당", "있음", "보훈대상", "applicable", "yes"),
     ),
+    # 고등학교 계열(education.high_school.major). 대학 전공 이름에는 해당하지 않습니다.
+    "major": (
+        ("이과", "자연계", "자연계열", "자연", "science"),
+        ("문과", "인문계", "인문계열", "인문", "humanities"),
+        ("예체능", "예체능계", "예체능계열", "arts"),
+        ("특성화", "실업계", "전문계", "직업계", "vocational"),
+    ),
+    # 「편입여부」 Y/N 선택 칸도 입학 구분으로 채웁니다(편입 = Y).
     "admission_type": (
-        ("입학", "신입학", "정시", "수시", "regular", "freshman"),
-        ("편입", "편입학", "transfer"),
+        ("입학", "신입학", "정시", "수시", "regular", "freshman", "n", "no", "아니오", "아니요"),
+        ("편입", "편입학", "transfer", "y", "yes", "예"),
     ),
     # 학교 소재지(실측: SK는 영어 선택지 'Seoul'). 도를 시보다 앞에 둡니다: '경기 광주'는 경기도입니다.
     "region": (
@@ -272,6 +280,10 @@ def detect_text_date_format(*, placeholder: str | None, pattern: str | None, max
     match = re.search(r"YYYY([^A-Z0-9]?)MM", compact)
     if match:
         return f"YYYY{match.group(1)}MM"
+    # English forms often ask for month first ('MM/YYYY'); a day-first date stays ambiguous.
+    match = re.fullmatch(r"\(?MM([^A-Z0-9]?)YYYY\)?", compact)
+    if match:
+        return f"MM{match.group(1)}YYYY"
     # An example date such as '2020.03' or '1990-01-01' shows the expected shape.
     example = re.sub(r"^(?:예\)|예:|EX\)|EX:|E\.G\.)", "", compact)
     match = re.fullmatch(r"(?:19|20)\d{2}([-./]?)(0[1-9]|1[0-2])(?:([-./]?)(0[1-9]|[12]\d|3[01]))?", example)
@@ -358,6 +370,19 @@ def plan_widget_action(field: FormField, resume_path: str, value: str, part: str
             iso_value = f"{year:04d}-{month:02d}-{day:02d}"
             inferred = "month_to_last_day" if resume_path.endswith("graduation_date") else "month_to_first_day"
         full_date = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", iso_value or ""))
+        if part in {"year", "month"}:
+            # A date split into a year box and a month box gets only its own part.
+            number = int(iso_value[:4] if part == "year" else iso_value[5:7]) if len(iso_value or "") >= 7 else None
+            if number is None:
+                return _human(field, resume_path, "날짜를 연도와 월로 나눌 수 없습니다")
+            if kind == "select":
+                option = _match_number_option(field.options, number)
+                if option is None:
+                    return _human(field, resume_path, f"{part} 선택지를 하나로 확정할 수 없습니다")
+                return WidgetAction(**base, action="select_option", value=option.value, inferred=inferred)
+            if kind == "text":
+                return WidgetAction(**base, action="fill", value=str(number) if part == "year" else f"{number:02d}")
+            return _human(field, resume_path, f"'{kind}' 입력 방식에서는 나뉜 날짜를 지원하지 않습니다")
         if kind == "native_date":
             return WidgetAction(**base, action="fill", value=iso_value, inferred=inferred) if full_date else _human(
                 field, resume_path, "연월일 전체가 필요합니다"
@@ -405,6 +430,25 @@ def plan_widget_action(field: FormField, resume_path: str, value: str, part: str
             return WidgetAction(**base, action="select_option", value=option.value)
         if kind != "text" or (field.maxlength is not None and len(segment) > field.maxlength):
             return _human(field, resume_path, "휴대폰 번호 칸의 길이가 맞지 않습니다")
+        return WidgetAction(**base, action="fill", value=segment)
+
+    if resume_path in {"person.email", "person.email_secondary"} and part in {"local", "domain", "domain_select"}:
+        local, at, domain = (value or "").partition("@")
+        if not at or not local or not domain:
+            return _human(field, resume_path, "이메일을 아이디와 도메인으로 나눌 수 없습니다")
+        if part == "domain_select":
+            if kind != "select":
+                return _human(field, resume_path, "이메일 도메인 선택 칸을 처리할 수 없습니다")
+            exact = [option for option in field.options if option.text.strip().casefold() == domain.casefold()
+                     or (option.value or "").strip().casefold() == domain.casefold()]
+            direct = [option for option in field.options if re.search(r"직접\s*입력|직접|self", option.text, re.I)]
+            chosen = exact[0] if len(exact) == 1 else direct[0] if len(direct) == 1 else None
+            if chosen is None:
+                return _human(field, resume_path, "이메일 도메인 선택지를 확정할 수 없습니다")
+            return WidgetAction(**base, action="select_option", value=chosen.value)
+        segment = local if part == "local" else domain
+        if kind not in {"text", "custom_combobox"} or (field.maxlength is not None and len(segment) > field.maxlength):
+            return _human(field, resume_path, "이메일 칸의 형식이나 길이가 맞지 않습니다")
         return WidgetAction(**base, action="fill", value=segment)
 
     if kind == "custom_combobox":

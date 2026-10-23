@@ -8,7 +8,7 @@ import asyncio
 from pydantic import BaseModel, ConfigDict
 
 from .korean_scope import KoreanMvpMapper
-from .mapping import FormField, MappingRecord
+from .mapping import FormField, MappingProvider, MappingRecord
 from .models import ResumeProfile
 from .planning import FillAction, build_fill_plan
 from .widgets import WidgetAction, plan_widget_action
@@ -28,8 +28,13 @@ class WorkerPlan(BaseModel):
 class KoreanPlanningWorker:
     """Side-effect-free worker boundary; Playwright execution is added in Phase 5."""
 
-    def __init__(self, mapper: KoreanMvpMapper | None = None):
+    def __init__(self, mapper: MappingProvider | None = None):
         self.mapper = mapper or KoreanMvpMapper()
+
+    # 매퍼가 남긴 한 줄 안내(예: AI 칸 연결을 쓰지 못해 규칙만 사용). 규칙 매퍼는 없음.
+    @property
+    def notice(self) -> str:
+        return getattr(self.mapper, "notice", "")
 
     # 흐름: ① 칸을 이력서 항목에 연결 → ② 입력할 값 계획 → ③ 칸 종류에 맞는 위젯 동작으로 변환.
     async def plan(self, profile: ResumeProfile, fields: list[FormField]) -> WorkerPlan:

@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from .constants import ALLOWED_RESUME_PATHS, DERIVED_PATHS, NAME_EN_PATHS, NAME_PATHS
-from .mapping import FormField, MappingRecord
+from .mapping import LLM_ONLY_SOURCE, FormField, MappingRecord
 from .models import EducationRecord, ResumeProfile, clean_field
 from .names import confirm_name_parts, infer_latin_name, infer_name_parts, name_components_usable
 
@@ -35,6 +36,8 @@ class FillAction(BaseModel):
     value: str | None = None
     reason: str = ""
     part: str | None = None
+    # 입력은 하되 사용자 확인으로 남길 이유(예: AI만 연결한 칸). 비어 있으면 검증 후 「입력됨」.
+    review: str = ""
 
     # 로그용 요약. 실제 값은 빼고 '값이 있는지'만 남겨 개인정보가 기록되지 않게 합니다.
     def safe_summary(self) -> dict[str, object]:
@@ -60,10 +63,66 @@ def highest_education(profile: ResumeProfile) -> str:
         if "석사" in degree or "master" in degree:
             return "석사"
         return "대학원"
-    university = records.get("university")
+    university = records.get("university") or records.get("previous_university")
     if university is not None:
         return "전문학사" if "전문" in university.degree or "associate" in university.degree.casefold() else "학사"
+    if "high_school" in records:
+        return "고등학교"
     return ""
+
+
+# 편입 전 대학을 어느 대학 블록에 넣을지 알리는 문구(블록 순서로 추정하므로 사용자가 확인).
+PREVIOUS_UNIVERSITY_REVIEW = "편입 전 대학을 앞쪽 대학 칸에 입력했습니다. 순서가 맞는지 확인해 주세요."
+EXTRA_UNIVERSITY_REASON = "이력서에 이 순서의 대학 학력이 없어 입력하지 않았습니다"
+_JUNIOR_COLLEGE_RE = re.compile(r"전문\s*대|전문\s*학사|cllg|junior\s*college|associate", re.I)
+
+
+def _is_junior_college(record: EducationRecord | None) -> bool:
+    return bool(record and _JUNIOR_COLLEGE_RE.search(f"{record.school_name} {record.degree}"))
+
+
+def university_block_paths(
+    profile: ResumeProfile, mappings: list[MappingRecord], fields: list[FormField] | None = None,
+) -> dict[str, str | None]:
+    """Resume path per field of the page's university blocks.
+
+    A page may list a junior-college block before the university block, or several plain blocks.
+    The final university goes to a block of its own kind (junior college or not): the first one, or
+    the last one when a pre-transfer school also needs a block. The pre-transfer school goes to a
+    block of its kind, else the earliest remaining block. Other blocks map to None (not filled).
+    """
+    university = [m for m in mappings if m.resume_path.startswith("education.university.") and m.instance is not None]
+    blocks = list(dict.fromkeys(sorted(m.instance for m in university)))
+    if len(blocks) < 2:
+        return {}
+    by_key = {field.key: field for field in fields or []}
+    junior = {
+        m.instance for m in university
+        if m.form_field in by_key and _JUNIOR_COLLEGE_RE.search(f"{by_key[m.form_field].label} {by_key[m.form_field].name}")
+    }
+    final_record = next((r for r in profile.education if r.education_level == "university"), None)
+    previous = next((r for r in profile.education if r.education_level == "previous_university" and r.school_name), None)
+
+    def of_kind(record: EducationRecord | None) -> list[int]:
+        kind = [block for block in blocks if (block in junior) == _is_junior_college(record)]
+        return kind or blocks
+
+    final_choices = of_kind(final_record)
+    final_block = final_choices[-1] if previous else final_choices[0]
+    previous_block = None
+    if previous:
+        rest = [block for block in of_kind(previous) if block != final_block] or [b for b in blocks if b != final_block]
+        previous_block = rest[0]
+    paths: dict[str, str | None] = {}
+    for mapping in university:
+        field = mapping.resume_path.rsplit(".", 1)[1]
+        if mapping.instance == previous_block:
+            paths[mapping.form_field] = f"education.previous_university.{field}"
+        elif mapping.instance == final_block:
+            paths[mapping.form_field] = mapping.resume_path
+        else:
+            paths[mapping.form_field] = None
+    return paths
 
 
 # 'person.email' 같은 경로 문자열로 이력서에서 값을 꺼냅니다.
@@ -140,17 +199,26 @@ def build_fill_plan(
 ) -> list[FillAction]:
     """Read only mapped resume paths and produce side-effect-free actions."""
     by_field = {field.key: field for field in fields}
+    blocks = university_block_paths(profile, mappings, fields)
     actions: list[FillAction] = []
     for mapping in mappings:
         if mapping.resume_path == "unmapped":
             continue
         field = by_field[mapping.form_field]
+        path = blocks.get(mapping.form_field, mapping.resume_path)
+        review = mapping.reason if mapping.source == LLM_ONLY_SOURCE else ""
+        if path and path.startswith("education.previous_university."):
+            review = PREVIOUS_UNIVERSITY_REVIEW
         base = {
             "form_field": field.key,
-            "resume_path": mapping.resume_path,
+            "resume_path": path or mapping.resume_path,
             "widget_kind": field.widget_kind,
             "part": mapping.part,
+            "review": review,
         }
+        if path is None:
+            actions.append(FillAction(**base, status="missing_optional", reason=EXTRA_UNIVERSITY_REASON))
+            continue
         if field.current_value_present:
             actions.append(FillAction(**base, status="kept_existing", reason="페이지에 이미 입력된 값을 유지합니다"))
             continue
@@ -180,11 +248,27 @@ def build_fill_plan(
                 )
             )
             continue
-        value = get_resume_value(profile, mapping.resume_path)
+        value = get_resume_value(profile, base["resume_path"])
         if not value:
             status = "missing_required" if field.required else "missing_optional"
             actions.append(FillAction(**base, status=status, reason="이력서에서 값을 찾지 못했습니다"))
             continue
         actions.append(FillAction(**base, status="planned", value=value, reason="검증된 필드 연결과 이력서 값입니다"))
-    return actions
+    return _domain_select_first(actions)
+
+
+# 이메일 도메인 선택(예: 「직접입력」)을 도메인 글자 칸보다 먼저 합니다. 나중에 고르면 사이트가 입력한 도메인을 지우기도 합니다.
+def _domain_select_first(actions: list[FillAction]) -> list[FillAction]:
+    selects = [action for action in actions if action.part == "domain_select"]
+    if not selects:
+        return actions
+    ordered: list[FillAction] = []
+    for action in actions:
+        if action.part == "domain_select":
+            continue
+        if action.part == "domain":
+            ordered.extend(item for item in selects if item.resume_path == action.resume_path and item not in ordered)
+        ordered.append(action)
+    ordered.extend(item for item in selects if item not in ordered)
+    return ordered
 
