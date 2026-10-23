@@ -193,6 +193,33 @@ class SkLikeFormTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.evaluate("window.picked"), 1)
 
 
+    async def test_application_choice_selects_are_named_by_their_caption_and_left_to_the_user(self):
+        # 실측(SK): select에 label이 없고 옆 div.select-label에 문구, title에도 같은 뜻이 있습니다.
+        # 지원 직무·근무 지역·고용형태·지원 경로는 이번 지원에 대한 본인의 선택이라 Agent가 고르지 않습니다.
+        rows = []
+        for name, caption, title in (
+            ("appJobRoleLevel1", "지원 직무", "지원 직무(1지망)"),
+            ("appWorkingRegion", "근무 지역", "근무 지역(1지망)"),
+            ("appWorkingType", "고용형태", "고용형태"),
+            ("appApplyPath", "지원 경로", "지원 경로"),
+        ):
+            rows.append(
+                f'<div class="form-item"><div class="selectric-container">'
+                f'<div class="select-label">{caption}<span class="required">*</span></div>'
+                f'<select name="{name}" class="selectric medium float required" title="{title}">'
+                f'<option value="">선택</option><option value="A">A</option><option value="B">B</option></select>'
+                f'</div></div>'
+            )
+        await self.page.set_content("<div class='apply-form-box'>" + "".join(rows) + "</div>")
+        report = await self.worker.fill("task", self.profile)
+        by_label = {item.label.replace(" ", ""): item.status for item in report.results}
+        self.assertEqual(
+            by_label,
+            {"지원직무*": "user_only", "근무지역*": "user_only", "고용형태*": "user_only", "지원경로*": "user_only"},
+        )
+        self.assertEqual(await self.page.locator("select").evaluate_all("(items) => items.map((item) => item.value)"), ["", "", "", ""])
+
+
 class SensitiveStatusParsingTests(unittest.TestCase):
     def test_status_labels_by_keyword(self):
         profile = extract_resume_profile("이름 홍길동\n병역 비대상\n장애 비대상\n보훈여부: 해당없음\n")["resume_profile"].personal

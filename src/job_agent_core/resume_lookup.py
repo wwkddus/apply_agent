@@ -111,7 +111,10 @@ PROMPT = """아래는 지원자의 이력서 텍스트와, 채용 지원서에�
 # 입사 가능일·희망 연봉처럼 '이번 지원에 대한 본인의 선택'은 이력서로 답할 수 없으므로 제외.
 _PREFERENCE_RE = re.compile(
     r"입사\s*가능|입사\s*예정|근무\s*가능일|희망\s*(연봉|근무|직무|지역)|현재\s*연봉|이전\s*연봉|직전\s*연봉|"
-    r"available\s*(date|start)|expected\s*salary|previous\s*salary|current\s*salary|desired",
+    # 실측(SK): 지원 직무·근무 지역·고용형태·지원 경로(1지망/2지망)도 이번 지원에 대한 선택입니다.
+    r"지원\s*(직무|분야|부문|경로)|근무\s*(지역|형태|지)|고용\s*형태|채용\s*경로|\d\s*지망|"
+    r"available\s*(date|start)|expected\s*salary|previous\s*salary|current\s*salary|desired|"
+    r"job\s*role|employment\s*type|work(ing)?\s*(region|location|type)|how\s*did\s*you\s*hear|referral\s*source",
     re.I,
 )
 _THESIS_RE = re.compile(r"논문|졸업\s*(작품|과제|전시|프로젝트)|thesis|dissertation|capstone", re.I)
@@ -150,7 +153,7 @@ def user_only_reason(field: FormField) -> str | None:
     if _THESIS_RE.search(f"{field.label} {field.name or ''}"):
         return "논문·졸업작품은 이력서에 없는 항목이라 사용자가 직접 입력합니다."
     if _PREFERENCE_RE.search(f"{field.label} {field.name or ''}"):
-        return "입사 가능일·희망 연봉처럼 이번 지원에 대한 본인의 선택 항목입니다."
+        return "지원 직무·근무 지역·희망 연봉처럼 이번 지원에 대한 본인의 선택 항목입니다."
     if _THIRD_PARTY_RE.search(context):
         return "지원자 본인이 아닌 사람(비상연락처·보호자 등)의 정보입니다."
     if field.widget_kind not in LOOKUP_WIDGETS or field.readonly:
