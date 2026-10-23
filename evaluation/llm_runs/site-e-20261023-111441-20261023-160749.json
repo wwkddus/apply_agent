@@ -1,0 +1,141 @@
+{
+  "snapshot": "site-e-20261023-111441.json",
+  "labels": "site-e-20261023-111441.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 98,
+      "fillable": 35,
+      "accuracy": 0.867,
+      "fill_recall": 0.943,
+      "wrong_fill": 13,
+      "missed": 0,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-18",
+          "expected": "unmapped",
+          "predicted": "person.disability_status"
+        },
+        {
+          "form_field": "p1:al-f0-19",
+          "expected": "unmapped",
+          "predicted": "person.disability_status"
+        },
+        {
+          "form_field": "p1:al-f0-20",
+          "expected": "unmapped",
+          "predicted": "person.veteran_status"
+        },
+        {
+          "form_field": "p1:al-f0-22",
+          "expected": "unmapped",
+          "predicted": "person.veteran_status"
+        },
+        {
+          "form_field": "p1:al-f0-23",
+          "expected": "unmapped",
+          "predicted": "person.military_status"
+        },
+        {
+          "form_field": "p1:al-f0-24",
+          "expected": "unmapped",
+          "predicted": "person.military_status"
+        },
+        {
+          "form_field": "p1:al-f0-25",
+          "expected": "unmapped",
+          "predicted": "person.military_status"
+        },
+        {
+          "form_field": "p1:al-f0-26",
+          "expected": "unmapped",
+          "predicted": "person.military_status"
+        },
+        {
+          "form_field": "p1:al-f0-27",
+          "expected": "unmapped",
+          "predicted": "person.military_status"
+        },
+        {
+          "form_field": "p2:al-f0-19",
+          "expected": "education.graduate_school.gpa",
+          "predicted": "education.graduate_school.graduation_date"
+        },
+        {
+          "form_field": "p2:al-f0-34",
+          "expected": "unmapped",
+          "predicted": "education.university.major"
+        },
+        {
+          "form_field": "p2:al-f0-37",
+          "expected": "education.graduate_school.admission_type",
+          "predicted": "education.graduate_school.graduation_status"
+        },
+        {
+          "form_field": "p2:al-f0-40",
+          "expected": "unmapped",
+          "predicted": "education.graduate_school.major"
+        }
+      ],
+      "seconds": 0.004,
+      "review": 13,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 98,
+      "fillable": 35,
+      "accuracy": 0.918,
+      "fill_recall": 0.829,
+      "wrong_fill": 2,
+      "missed": 6,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-18",
+          "expected": "unmapped",
+          "predicted": "person.disability_status"
+        },
+        {
+          "form_field": "p1:al-f0-28",
+          "expected": "unmapped",
+          "predicted": "person.name.given"
+        },
+        {
+          "form_field": "p1:al-f0-29",
+          "expected": "person.disability_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-30",
+          "expected": "person.veteran_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-19",
+          "expected": "education.graduate_school.gpa",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-30",
+          "expected": "education.university.campus_type",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-36",
+          "expected": "education.graduate_school.campus_type",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-37",
+          "expected": "education.graduate_school.admission_type",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 144.23,
+      "requests": 5,
+      "prompt_tokens": 18505,
+      "completion_tokens": 2816,
+      "review": 6,
+      "ai_only": 2
+    }
+  }
+}

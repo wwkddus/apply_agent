@@ -1,0 +1,110 @@
+page_index,form_field,label,widget_kind,expected_path,note
+1,al-f0-0,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-1,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-2,이름(한글),text,person.name.full,
+1,al-f0-3,이름(영문)_여권명 ex)HONG GILDONG,text,person.name_en.full,
+1,al-f0-4,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-5,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-6,휴대전화* 필수,text,person.phone,
+1,al-f0-7,이메일을 입력해주세요.,text,person.email,아이디/도메인 분리 칸 — 개념상 이메일
+1,al-f0-8,이메일 주소를 입력해주세요.,text,person.email,아이디/도메인 분리 칸 — 개념상 이메일
+1,al-f0-9,지원경로* 필수,custom_select,unmapped,
+1,al-f0-10,병역여부* 필수,custom_select,person.military_status,
+1,al-f0-11,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-12,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-13,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+1,al-f0-14,복무기간 입대년월일,text,unmapped,
+1,al-f0-15,복무기간 전역년월일,text,unmapped,
+1,al-f0-16,성별* 필수,radio_group,unmapped,
+1,al-f0-17,보훈여부* 필수,radio_group,person.veteran_status,
+1,al-f0-18,장애여부* 필수,radio_group,person.disability_status,
+2,al-f0-0,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-1,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-2,최종학력* 필수,custom_select,education.highest_level,
+2,al-f0-3,학교명,text,education.high_school.school_name,고등학교
+2,al-f0-4,고등학교 졸업일자,text,education.high_school.graduation_date,고등학교
+2,al-f0-5,소재지,custom_select,education.high_school.region,고등학교
+2,al-f0-6,해당없음,checkbox,unmapped,
+2,al-f0-7,학교명,text,education.university.school_name,
+2,al-f0-8,주전공,text,education.university.major,
+2,al-f0-9,복수전공,text,education.university.double_major,
+2,al-f0-10,부전공,text,unmapped,
+2,al-f0-11,대학교 입학년월,text,education.university.admission_date,
+2,al-f0-12,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-13,대학교 졸업년월,text,education.university.graduation_date,
+2,al-f0-14,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-15,대학교 학점,text,education.university.gpa,
+2,al-f0-16,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-17,대학교 이수학점,text,unmapped,
+2,al-f0-18,대학교 졸업기준 학점,text,unmapped,
+2,al-f0-19,학교명,text,education.graduate_school.school_name,
+2,al-f0-20,전공,text,education.graduate_school.major,
+2,al-f0-21,대학원(석사) 입학년월,text,education.graduate_school.admission_date,
+2,al-f0-22,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-23,대학원(석사) 졸업년월,text,education.graduate_school.graduation_date,
+2,al-f0-24,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-25,대학원(석사) 학점,text,education.graduate_school.gpa,
+2,al-f0-26,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-27,대학원(석사) 이수학점,text,unmapped,
+2,al-f0-28,대학원(석사) 졸업기준 학점,text,unmapped,
+2,al-f0-29,논문제목,text,unmapped,
+2,al-f0-30,논문내용,textarea,unmapped,
+2,al-f0-31,논문첨부,text,unmapped,
+2,al-f0-32,학교명,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-33,전공,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-34,대학원(박사) 입학년월,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-35,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-36,대학원(박사) 졸업년월,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-37,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-38,대학원(박사) 학점,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-39,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-40,대학원(박사) 이수학점,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-41,대학원(박사) 졸업기준 학점,text,,박사 블록 — 이력서 대학원 1개라 평가 제외
+2,al-f0-42,논문제목,text,unmapped,
+2,al-f0-43,논문내용,textarea,unmapped,
+2,al-f0-44,논문첨부,text,unmapped,
+2,al-f0-45,언어,text,unmapped,
+2,al-f0-46,시험명,text,unmapped,
+2,al-f0-47,점수·등급,text,unmapped,
+2,al-f0-48,취득일자,text,unmapped,
+2,al-f0-49,자격증명,text,unmapped,
+2,al-f0-50,발행기관,text,unmapped,
+2,al-f0-51,자격증 취득일자,text,unmapped,
+2,al-f0-52,등록번호,text,unmapped,
+2,al-f0-53,회사명,text,unmapped,
+2,al-f0-54,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-55,연봉,text,unmapped,
+2,al-f0-56,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-57,사업분야,text,unmapped,
+2,al-f0-58,매출규모,text,unmapped,
+2,al-f0-59,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-60,근무기간 입사년월,text,unmapped,
+2,al-f0-61,근무기간 퇴사년월,text,unmapped,
+2,al-f0-62,이직사유,text,unmapped,
+2,al-f0-63,,custom_select,,라벨 없는 선택 칸 — 평가 제외
+2,al-f0-64,부서,text,unmapped,
+2,al-f0-65,직급,text,unmapped,
+2,al-f0-66,직책,text,unmapped,
+2,al-f0-67,담당업무,text,unmapped,
+2,al-f0-68,수행업무* 필수,textarea,unmapped,
+2,al-f0-69,프로젝트명,text,unmapped,
+2,al-f0-70,프로젝트 주요 내용,textarea,unmapped,
+2,al-f0-71,프로젝트 주관기관,text,unmapped,
+2,al-f0-72,프로젝트 수행기간 시작년월,text,unmapped,
+2,al-f0-73,프로젝트 수행기간 종료년월,text,unmapped,
+2,al-f0-74,담당업무,text,unmapped,
+2,al-f0-75,대회명,text,unmapped,
+2,al-f0-76,수상명,text,unmapped,
+2,al-f0-77,수여기관,text,unmapped,
+2,al-f0-78,수상일자,text,unmapped,
+2,al-f0-79,수상내용,textarea,unmapped,
+2,al-f0-80,활동명,text,unmapped,
+2,al-f0-81,주관기관,text,unmapped,
+2,al-f0-82,시작년월(YYYYMM),text,unmapped,
+2,al-f0-83,종료년월(YYYYMM),text,unmapped,
+2,al-f0-84,활동내용,textarea,unmapped,
+2,al-f0-85,국내·외 구분,radio_group,unmapped,
+2,al-f0-86,최종졸업(예정)대학,radio_group,unmapped,
+2,al-f0-87,국내·외 구분,radio_group,unmapped,
+2,al-f0-88,국내·외 구분,radio_group,unmapped,
+2,al-f0-89,국내·외 구분,radio_group,unmapped,

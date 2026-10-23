@@ -1,0 +1,66 @@
+{
+  "snapshot": "site-f-20261023-111748.json",
+  "labels": "site-f-20261023-111748.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 37,
+      "fillable": 6,
+      "accuracy": 0.919,
+      "fill_recall": 0.5,
+      "wrong_fill": 3,
+      "missed": 0,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-1",
+          "expected": "person.name_en.given",
+          "predicted": "person.name_en.full"
+        },
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.address_detail",
+          "predicted": "person.address"
+        },
+        {
+          "form_field": "p1:al-f0-8",
+          "expected": "education.highest_level",
+          "predicted": "education.university.school_name"
+        }
+      ],
+      "seconds": 0.002,
+      "review": 1,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 37,
+      "fillable": 6,
+      "accuracy": 0.919,
+      "fill_recall": 0.5,
+      "wrong_fill": 0,
+      "missed": 3,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-1",
+          "expected": "person.name_en.given",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.address_detail",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-8",
+          "expected": "education.highest_level",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 50.46,
+      "requests": 2,
+      "prompt_tokens": 5478,
+      "completion_tokens": 1029,
+      "review": 3,
+      "ai_only": 0
+    }
+  }
+}

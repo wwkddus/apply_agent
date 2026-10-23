@@ -1,0 +1,31 @@
+page_index,form_field,label,widget_kind,expected_path,note
+1,al-f0-0,성명 *,text,person.name.full,
+1,al-f0-1,이메일 *,text,person.email,
+1,al-f0-2,휴대폰 번호 *,text,person.phone,
+1,al-f0-3,생년월일 *,text,person.birth_date,
+1,al-f0-4,성별 *,text,unmapped,성별 — 이력서 경로 없음
+1,al-f0-5,(영문 이름) Gildong,text,person.name_en.given,
+1,al-f0-6,(영문 성) Hong,text,person.name_en.family,
+1,al-f0-7,보조 이메일,text,person.email_secondary,
+1,al-f0-8,주소 *,text,person.postal_code,라벨은 「주소」지만 name=prsZipCode (우편번호 칸)
+1,al-f0-9,기본주소 *,text,person.address,
+1,al-f0-10,상세주소 *,text,person.address_detail,
+1,al-f0-11,현 시점 기준 입사가능일자를 기재 부탁드립니다. (YYYY-MM-DD),text,unmapped,입사가능일자 — 지원자가 직접
+1,al-f0-12,지원 직무 *,select,unmapped,
+1,al-f0-13,근무 지역 *,select,unmapped,
+1,al-f0-14,고용형태 *,select,unmapped,
+1,al-f0-15,지원 경로 *,select,unmapped,
+1,al-f0-16,희망연봉(만원) *,text,unmapped,연봉 — 이력서 항목 아님
+1,al-f0-17,직전연봉(만원) *,text,unmapped,연봉 — 이력서 항목 아님
+1,al-f0-18,최종 학력 *,select,education.highest_level,
+1,al-f0-19,상세 경력 및 프로젝트 이력에 대해서 자유롭게 작성해주시기 바랍니다. (자유 분량) *,textarea,unmapped,
+1,al-f0-20,지원 동기와 본 직무를 잘 수행할 수 있다고 생각하는 이유에 대하여 본인의 보유 강점과 경험을 기반으로 기술,textarea,unmapped,
+1,al-f0-21,해당하는 업체명 / 프로젝트명 / 수행기간을 기재해 주시기 바랍니다. 예) ○○파트너사 / ○○ 프로젝트 /,text,unmapped,
+1,al-f0-22,지원서 기재내용 중 허위사실이 있거나 문서 증빙이 불가능할 경우 합격이 취소되거나 전형상 불이익을 받을 수 ,checkbox,unmapped,
+1,al-f0-23,SK(주) AX는 보다 객관적이고 공정한 채용 진행을 위해 전형 과정에서 AI를 도입하여 분석을 진행하고 있,checkbox,unmapped,
+1,al-f0-24,작성한 지원서를 ‘나의 이력서'로 저장해둡니다. ‘나의 이력서’로 등록하면 지원서 작성시 작성된 정보(인적사,checkbox,unmapped,
+1,al-f0-25,보훈 정보,radio_group,person.veteran_status,
+1,al-f0-26,병역 사항,radio_group,person.military_status,
+1,al-f0-27,장애정보,radio_group,person.disability_status,
+1,al-f0-28,과거나 현재에 SK주식회사 AX 또는 SK그룹 관계사의 협력업체(Business Partner)에 소속되어 ,radio_group,unmapped,
+1,al-f0-29,링크 또는 파일 제출 (택 1),radio_group,unmapped,

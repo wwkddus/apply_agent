@@ -1,0 +1,50 @@
+{
+  "snapshot": "site-d-20261023-105731.json",
+  "labels": "site-d-20261023-105731.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 80,
+      "fillable": 23,
+      "accuracy": 1.0,
+      "fill_recall": 1.0,
+      "wrong_fill": 0,
+      "missed": 0,
+      "errors": [],
+      "seconds": 0.003,
+      "review": 5,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 80,
+      "fillable": 23,
+      "accuracy": 0.963,
+      "fill_recall": 0.87,
+      "wrong_fill": 0,
+      "missed": 3,
+      "errors": [
+        {
+          "form_field": "p2:al-f0-3",
+          "expected": "education.high_school.school_name",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-7",
+          "expected": "education.university.school_name",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-9",
+          "expected": "education.university.double_major",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 152.18,
+      "requests": 6,
+      "prompt_tokens": 16839,
+      "completion_tokens": 3079,
+      "review": 7,
+      "ai_only": 0
+    }
+  }
+}

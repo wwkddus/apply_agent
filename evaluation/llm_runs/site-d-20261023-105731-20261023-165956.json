@@ -1,0 +1,106 @@
+{
+  "snapshot": "site-d-20261023-105731.json",
+  "labels": "site-d-20261023-105731.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 80,
+      "fillable": 23,
+      "accuracy": 0.9,
+      "fill_recall": 0.826,
+      "wrong_fill": 7,
+      "missed": 1,
+      "errors": [
+        {
+          "form_field": "p2:al-f0-3",
+          "expected": "education.high_school.school_name",
+          "predicted": "education.university.school_name"
+        },
+        {
+          "form_field": "p2:al-f0-5",
+          "expected": "education.high_school.region",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-10",
+          "expected": "unmapped",
+          "predicted": "education.university.double_major"
+        },
+        {
+          "form_field": "p2:al-f0-19",
+          "expected": "education.graduate_school.school_name",
+          "predicted": "education.university.school_name"
+        },
+        {
+          "form_field": "p2:al-f0-20",
+          "expected": "education.graduate_school.major",
+          "predicted": "education.university.major"
+        },
+        {
+          "form_field": "p2:al-f0-85",
+          "expected": "unmapped",
+          "predicted": "education.high_school.region"
+        },
+        {
+          "form_field": "p2:al-f0-86",
+          "expected": "unmapped",
+          "predicted": "education.university.graduation_date"
+        },
+        {
+          "form_field": "p2:al-f0-87",
+          "expected": "unmapped",
+          "predicted": "education.university.region"
+        }
+      ],
+      "seconds": 0.003,
+      "review": 4,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 80,
+      "fillable": 23,
+      "accuracy": 0.925,
+      "fill_recall": 0.783,
+      "wrong_fill": 1,
+      "missed": 5,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-16",
+          "expected": "unmapped",
+          "predicted": "person.name.given"
+        },
+        {
+          "form_field": "p2:al-f0-3",
+          "expected": "education.high_school.school_name",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-7",
+          "expected": "education.university.school_name",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-9",
+          "expected": "education.university.double_major",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-19",
+          "expected": "education.graduate_school.school_name",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-20",
+          "expected": "education.graduate_school.major",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 149.04,
+      "requests": 6,
+      "prompt_tokens": 16839,
+      "completion_tokens": 3079,
+      "review": 9,
+      "ai_only": 2
+    }
+  }
+}

@@ -1,0 +1,82 @@
+page_index,form_field,label,widget_kind,expected_path,note
+1,al-f0-0,1차 희망 회사,select,unmapped,
+1,al-f0-1,1차 희망 회사의 직무,select,unmapped,
+1,al-f0-2,1차 희망 회사의 세부 직무,select,unmapped,
+1,al-f0-3,1차 희망 회사의 근무지,select,unmapped,
+1,al-f0-4,영문 성,text,person.name_en.family,
+1,al-f0-5,영문 이름,text,person.name_en.given,
+1,al-f0-6,본인주소(거주지) 우편번호,text,person.postal_code,
+1,al-f0-7,우편번호를 선택하시면 자동 표기됩니다.,text,person.address,name=rsdnBaseAdr 기본주소
+1,al-f0-8,rnaPrsnDTO.rsdnDtlAdr,text,person.address_detail,name=rsdnDtlAdr
+1,al-f0-9,휴대폰 번호 휴대폰 번호 앞자리,select,person.phone,앞자리 — 분리 칸
+1,al-f0-10,휴대폰 번호 중간자리,text,person.phone,중간 — 분리 칸
+1,al-f0-11,휴대폰 번호 끝자리,text,person.phone,끝 — 분리 칸
+1,al-f0-12,이메일 이메일 아이디 입력,text,person.email,아이디 — 분리 칸
+1,al-f0-13,이메일 도메인 입력,text,person.email,도메인 — 분리 칸
+1,al-f0-14,이메일 도메인 선택,select,,도메인 선택 보조 칸 — 평가 제외
+1,al-f0-15,군필 여부,select,person.military_status,
+1,al-f0-16,복무 시작 날짜 선택,custom_combobox,unmapped,
+1,al-f0-17,복무 끝 날짜 선택,custom_combobox,unmapped,
+1,al-f0-18,군별,select,unmapped,군별
+1,al-f0-19,조리병 근무,checkbox,unmapped,
+1,al-f0-20,계급,select,unmapped,
+1,al-f0-21,보훈대상구분,select,person.veteran_status,
+1,al-f0-22,보훈번호,text,unmapped,보훈번호
+1,al-f0-23,장애대상구분,select,person.disability_status,
+1,al-f0-24,장애내용,text,unmapped,장애내용
+1,al-f0-25,최종학력,select,education.highest_level,
+1,al-f0-26,1번째 전문대학 입학연도,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-27,1번째 전문대학 입학월,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-28,1번째 전문대학 졸업연도,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-29,1번째 전문대학 졸업월,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-30,1번째 전문대학 졸업 여부,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-31,1번째 전문대학 학교명,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-32,1번째 전문대학 소재지,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-33,1번째 전문대학 주/야간 구분,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-34,1번째 전문대학 편입여부,select,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-35,1번째 전문대학 주전공,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-36,1번째 전문대학 복수(이중)전공,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-37,1번째 전문대학 부전공,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-38,1번째 전문대학 학점,text,,"전문대학 블록 — 이력서에 전문대 단계 없음, 평가 제외"
+1,al-f0-39,1번째 대학교 입학연도,select,education.university.admission_date,연도
+1,al-f0-40,1번째 대학교 입학월,select,education.university.admission_date,월
+1,al-f0-41,1번째 대학교 졸업연도,select,education.university.graduation_date,연도
+1,al-f0-42,1번째 대학교 졸업월,select,education.university.graduation_date,월
+1,al-f0-43,1번째 대학교 졸업 여부,select,education.university.graduation_status,
+1,al-f0-44,학교명,text,education.university.school_name,
+1,al-f0-45,1번째 대학교 소재지,text,education.university.region,
+1,al-f0-46,1번째 대학교 주/야간구분,select,unmapped,주/야간
+1,al-f0-47,1번째 대학교 편입여부,select,education.university.admission_type,편입여부 Y
+1,al-f0-48,1번째 대학교 주전공,text,education.university.major,
+1,al-f0-49,1번째 대학교 복수(이중)전공,text,education.university.double_major,
+1,al-f0-50,1번째 대학교 부전공,text,unmapped,부전공
+1,al-f0-51,1번째 대학교 학점,text,education.university.gpa,
+1,al-f0-52,1번째 직장명,text,unmapped,
+1,al-f0-53,근무 시작 날짜 선택,custom_combobox,unmapped,
+1,al-f0-54,근무 끝 날짜 선택,custom_combobox,unmapped,
+1,al-f0-55,1번째 재직중,checkbox,unmapped,
+1,al-f0-56,1번째 근무부서,text,unmapped,
+1,al-f0-57,1번째 소재지,text,unmapped,
+1,al-f0-58,1번째 담당업무,text,unmapped,
+1,al-f0-59,1번째 최종직위,text,unmapped,
+1,al-f0-60,1번째 고용형태,select,unmapped,
+1,al-f0-61,1번째 연봉,text,unmapped,
+1,al-f0-62,1번째 퇴사사유,text,unmapped,
+1,al-f0-63,1번째 상세경력,textarea,unmapped,
+1,al-f0-64,상세 경력 기술,textarea,unmapped,
+1,al-f0-65,희망연봉,text,unmapped,
+1,al-f0-66,회사 내규에 따름,checkbox,unmapped,
+1,al-f0-67,1번째 외국어 언어,select,unmapped,
+1,al-f0-68,1번째 외국어 어학시험명,select,unmapped,
+1,al-f0-69,1번째 외국어 어학점수,text,unmapped,
+1,al-f0-70,1번째 외국어 등급,select,unmapped,
+1,al-f0-71,취득일 날짜 선택,custom_combobox,unmapped,
+1,al-f0-72,1번째 외국어능력 언어,select,unmapped,
+1,al-f0-73,1번째 외국어능력 수준,select,unmapped,
+1,al-f0-74,1번째 자격증,text,unmapped,
+1,al-f0-75,취득일 날짜 선택,custom_combobox,unmapped,
+1,al-f0-76,1번째 자격증 발급기관,text,unmapped,
+1,al-f0-77,내용,textarea,unmapped,
+1,al-f0-78,내용,textarea,unmapped,
+1,al-f0-79,내용,textarea,unmapped,
+1,al-f0-80,"포트폴리오(선택 사항, PFD 파일로 업로드 바랍니다.)",radio_group,unmapped,

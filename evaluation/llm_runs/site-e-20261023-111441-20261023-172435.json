@@ -1,0 +1,55 @@
+{
+  "snapshot": "site-e-20261023-111441.json",
+  "labels": "site-e-20261023-111441.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 98,
+      "fillable": 35,
+      "accuracy": 1.0,
+      "fill_recall": 1.0,
+      "wrong_fill": 0,
+      "missed": 0,
+      "errors": [],
+      "seconds": 0.004,
+      "review": 0,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 98,
+      "fillable": 35,
+      "accuracy": 0.959,
+      "fill_recall": 0.914,
+      "wrong_fill": 1,
+      "missed": 3,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-28",
+          "expected": "unmapped",
+          "predicted": "person.name.given"
+        },
+        {
+          "form_field": "p1:al-f0-30",
+          "expected": "person.veteran_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-30",
+          "expected": "education.university.campus_type",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p2:al-f0-36",
+          "expected": "education.graduate_school.campus_type",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 148.61,
+      "requests": 5,
+      "prompt_tokens": 18505,
+      "completion_tokens": 2816,
+      "review": 3,
+      "ai_only": 2
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "snapshot": "site-a-20261023-104127.json",
+  "labels": "site-a-20261023-104127.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 61,
+      "fillable": 29,
+      "accuracy": 0.967,
+      "fill_recall": 0.931,
+      "wrong_fill": 0,
+      "missed": 2,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.military_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-7",
+          "expected": "education.high_school.major",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 0.002,
+      "review": 0,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 61,
+      "fillable": 29,
+      "accuracy": 0.918,
+      "fill_recall": 0.828,
+      "wrong_fill": 0,
+      "missed": 5,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.military_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-7",
+          "expected": "education.high_school.major",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-53",
+          "expected": "person.disability_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-54",
+          "expected": "education.university.degree",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-55",
+          "expected": "education.university.admission_type",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 95.86,
+      "requests": 4,
+      "prompt_tokens": 11716,
+      "completion_tokens": 1803,
+      "review": 3,
+      "ai_only": 0
+    }
+  }
+}

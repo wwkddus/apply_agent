@@ -1,0 +1,34 @@
+{
+  "snapshot": "site-b-20261023-104646.json",
+  "labels": "site-b-20261023-104646.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 30,
+      "fillable": 14,
+      "accuracy": 1.0,
+      "fill_recall": 1.0,
+      "wrong_fill": 0,
+      "missed": 0,
+      "errors": [],
+      "seconds": 0.002,
+      "review": 0,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 30,
+      "fillable": 14,
+      "accuracy": 1.0,
+      "fill_recall": 1.0,
+      "wrong_fill": 0,
+      "missed": 0,
+      "errors": [],
+      "seconds": 44.66,
+      "requests": 2,
+      "prompt_tokens": 6239,
+      "completion_tokens": 862,
+      "review": 0,
+      "ai_only": 0
+    }
+  }
+}

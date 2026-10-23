@@ -1,0 +1,51 @@
+{
+  "snapshot": "site-a-20261023-104127.json",
+  "labels": "site-a-20261023-104127.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 61,
+      "fillable": 24,
+      "accuracy": 0.984,
+      "fill_recall": 0.958,
+      "wrong_fill": 0,
+      "missed": 1,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.military_status",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 0.002,
+      "review": 0,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 61,
+      "fillable": 24,
+      "accuracy": 0.967,
+      "fill_recall": 0.917,
+      "wrong_fill": 0,
+      "missed": 2,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-4",
+          "expected": "person.military_status",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-53",
+          "expected": "person.disability_status",
+          "predicted": "unmapped"
+        }
+      ],
+      "seconds": 90.25,
+      "requests": 4,
+      "prompt_tokens": 9420,
+      "completion_tokens": 1731,
+      "review": 0,
+      "ai_only": 0
+    }
+  }
+}

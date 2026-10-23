@@ -1,0 +1,66 @@
+{
+  "snapshot": "site-g-20261023-112851.json",
+  "labels": "site-g-20261023-112851.csv",
+  "batch_size": 20,
+  "providers": {
+    "rules": {
+      "fields": 67,
+      "fillable": 25,
+      "accuracy": 0.97,
+      "fill_recall": 0.96,
+      "wrong_fill": 2,
+      "missed": 0,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-47",
+          "expected": "education.university.admission_type",
+          "predicted": "education.university.school_name"
+        },
+        {
+          "form_field": "p1:al-f0-50",
+          "expected": "unmapped",
+          "predicted": "education.university.double_major"
+        }
+      ],
+      "seconds": 0.004,
+      "review": 3,
+      "ai_only": 0
+    },
+    "llmfirst:ollama:qwen3:8b": {
+      "fields": 67,
+      "fillable": 25,
+      "accuracy": 0.94,
+      "fill_recall": 0.88,
+      "wrong_fill": 1,
+      "missed": 3,
+      "errors": [
+        {
+          "form_field": "p1:al-f0-47",
+          "expected": "education.university.admission_type",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-49",
+          "expected": "education.university.double_major",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-51",
+          "expected": "education.university.gpa",
+          "predicted": "unmapped"
+        },
+        {
+          "form_field": "p1:al-f0-64",
+          "expected": "unmapped",
+          "predicted": "skills"
+        }
+      ],
+      "seconds": 118.8,
+      "requests": 5,
+      "prompt_tokens": 16049,
+      "completion_tokens": 2288,
+      "review": 0,
+      "ai_only": 1
+    }
+  }
+}

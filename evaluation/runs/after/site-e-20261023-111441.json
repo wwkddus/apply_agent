@@ -1,0 +1,1058 @@
+{
+  "schema": 1,
+  "variant": "after",
+  "site": "site-e",
+  "recorded_at": "2026-10-23T11:14:41",
+  "core_version": "0.3.0",
+  "resume": {
+    "pages": 2,
+    "text_chars": 459,
+    "present_paths": [
+      "education.graduate_school.admission_date",
+      "education.graduate_school.admission_type",
+      "education.graduate_school.campus_type",
+      "education.graduate_school.degree",
+      "education.graduate_school.gpa",
+      "education.graduate_school.gpa_scale",
+      "education.graduate_school.graduation_date",
+      "education.graduate_school.graduation_status",
+      "education.graduate_school.major",
+      "education.graduate_school.region",
+      "education.graduate_school.school_name",
+      "education.university.admission_date",
+      "education.university.admission_type",
+      "education.university.campus_type",
+      "education.university.gpa",
+      "education.university.gpa_scale",
+      "education.university.graduation_date",
+      "education.university.graduation_status",
+      "education.university.major",
+      "education.university.region",
+      "education.university.school_name",
+      "person.address",
+      "person.address_detail",
+      "person.birth_date",
+      "person.disability_status",
+      "person.email",
+      "person.military_status",
+      "person.name.family",
+      "person.name.full",
+      "person.name.given",
+      "person.name_en.family",
+      "person.name_en.full",
+      "person.name_en.given",
+      "person.phone",
+      "person.postal_code",
+      "person.veteran_status"
+    ]
+  },
+  "pages": [
+    {
+      "page_index": 1,
+      "field_count": 32,
+      "submit_control_count": 6,
+      "inspect_ms": 45.6,
+      "fill_ms": null,
+      "fields": [
+        {
+          "page_index": 1,
+          "form_field": "al-f0-0",
+          "label": "영문이름",
+          "widget_kind": "text",
+          "predicted_path": "person.name_en.full",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-1",
+          "label": "생년월일",
+          "widget_kind": "text",
+          "predicted_path": "person.birth_date",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-2",
+          "label": "분야 ------------------------- Tech",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-3",
+          "label": "지원경로를 선택하세요. 포털검색 채용박람회 자소설닷컴 잡플래닛 사람인 대학교취업게시판 취업카페 잡코리아 지인소개 원티드",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-4",
+          "label": "백엔드 개발",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-5",
+          "label": "프론트엔드 개발",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-6",
+          "label": "인프라 엔지니어링",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-7",
+          "label": "데이터 엔지니어링",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-8",
+          "label": "AI",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-9",
+          "label": "정보보호",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-10",
+          "label": "IT 기획·감사",
+          "widget_kind": "checkbox",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-11",
+          "label": "pictureFile",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-12",
+          "label": "국가를 선택하세요. 가나 가봉 가이아나 감비아 과들루프 과테말라 괌 그레나다 그리스 그린란드 기니 기니비사우 나미비아 나우루 나이지리아 남극 남수단공화국 남아공 네덜란드 네덜란드령 안틸레스 네팔 노르웨이 노퍽 섬 누벨칼레도니 뉴질랜드 니우에 니제르 니카라과 대만 대한민국 덴마크 도미니카 공화국 도미니카 연방 독일 동티모르 라오스 라이베리아 라트비아 러시아 레바논 레소토 레위니옹 루마니아 룩셈부르크 르완다 리비아 리투아니아 리히텐슈타인 마다가스카르 마르티니크 마셜 제도 마요트 마카오 마케도니아 공화국 말라위 말레이시아 말리 맨 섬 멕시코 모나코 모로코 모리셔스 모리타니 모잠비크 몬테네그로 몬트세랫 몰도바 몰디브 몰타 몽골 미국 미국령 군소 제도 미국령 버진아일랜드 미얀마 미크로네시아 연방 바누아투 바레인 바베이도스 바티칸 시국 바하마 방글라데시 버뮤다 베냉 베네수엘라 베트남 벨기에 벨라루스 벨리즈 보스니아 헤르체고비나 보츠와나 볼리비아 부룬디 부르키나파소 부베 섬 부탄 북마리아나 제도 불가리아 브라질 브루나이 사모아 사우디아라비아 사우스조지아 사우스샌드위치 제도 산마리노 상투메 프린시페 생피에르 미클롱 서사하라 세네갈 세르비아 세이셸 세인트루시아 세인트빈센트 그레나딘 세인트키츠 네비스 세인트헬레나 소말리아 솔로몬 제도 수단 수리남 스리랑카 스발바르 얀마옌 스와질란드 스웨덴 스위스 스페인 슬로바키아 슬로베니아 시리아 시에라리온 싱가포르 아랍에미리트 아루바 아르메니아 아르헨티나 아메리칸사모아 아이슬란드 아이티 아일랜드 아제르바이잔 아프가니스탄 안도라 알바니아 알제리 앙골라 앤티가 바부다 앵귈라 에리트레아 에스토니아 에콰도르 에티오피아 엘살바도르 영국 영국령 버진아일랜드 영국령 인도양 지역 예멘 오만 오스트리아 온두라스 올란드 제도 왈리스 퓌튀나 요르단 우간다 우루과이 우즈베키스탄 우크라이나 유럽연합 이라크 이란 이스라엘 이집트 이탈리아 인도 인도네시아 일본 자메이카 잠비아 저지 섬 적도 기니 조선민주주의인민공화국 조지아 중국 중앙아프리카 공화국 지부티 지브롤터 짐바브웨 차드 체코 칠레 카메룬 카보베르데 카자흐스탄 카타르 캄보디아 캐나다 케냐 케이맨 제도 코모로 코스타리카 코코스 제도 코트디부아르 콜롬비아 콩고 공화국 콩고 민주 공화국 쿠바 쿠웨이트 쿡 제도 크로아티아 크리스마스 섬 키르기스스탄 키리바시 키프로스 타이 타지키스탄 탄자니아 터크스 케이커스 제도 터키 토고 토켈라우 통가 투르크메니스탄 투발루 튀니지 트리니다드 토바고 파나마 파라과이 파키스탄 파푸아 뉴기니 팔라우 팔레스타인 페로 제도 페루 포르투갈 포클랜드 제도 폴란드 푸에르토리코 프랑스 프랑스령 기아나 프랑스령 남부와 남극 지역 프랑스령 폴리네시아 피지 핀란드 필리핀 핏케언 제도 허드 맥도널드 제도 헝가리 호주 홍콩",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-13",
+          "label": "currentAddress.zipCode",
+          "widget_kind": "text",
+          "predicted_path": "person.postal_code",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-14",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "person.address",
+          "decision_status": "readonly",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-15",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "person.address_detail",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-16",
+          "label": "긴급연락처",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-17",
+          "label": "긴급연락처",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-18",
+          "label": "장애정도 심한 장애인 심하지 않은 장애인",
+          "widget_kind": "select",
+          "predicted_path": "person.disability_status",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-19",
+          "label": "내용 간장애 뇌전증장애(간질장애) 뇌병변장애 시각장애 신장장애 심장장애 안면변형장애 장루/요루장애 정신장애 청각장애 호흡기장애 지체장애 언어장애 지적장애(정신박약/정신지체) 자폐성장애(발달장애) 췌장장애 기타장애",
+          "widget_kind": "select",
+          "predicted_path": "person.disability_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-20",
+          "label": "비대상",
+          "widget_kind": "text",
+          "predicted_path": "person.veteran_status",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-21",
+          "label": "비대상",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-22",
+          "label": "보훈비율 0% 5% 10%",
+          "widget_kind": "select",
+          "predicted_path": "person.veteran_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-23",
+          "label": "군별 군별을 선택하세요. 육군 해군 공군 해병 전경 의경 해경 공익 병역특례 카투사 의무소방 기타",
+          "widget_kind": "select",
+          "predicted_path": "person.military_status",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-24",
+          "label": "계급을 선택하세요. 이병 일병 상병 병장 하사 중사 상사 원사 준위 소위 중위 대위 소령 중령 대령 준장 소장 중장 대장 원수 기타",
+          "widget_kind": "select",
+          "predicted_path": "person.military_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-25",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "person.military_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-26",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "person.military_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-27",
+          "label": "제대구분을 선택하세요. 만기제대 소집해제 의가사제대 의병제대 불명예제대 상이제대 직접입력",
+          "widget_kind": "select",
+          "predicted_path": "person.military_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-28",
+          "label": "성별",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-29",
+          "label": "장애여부",
+          "widget_kind": "radio_group",
+          "predicted_path": "person.disability_status",
+          "decision_status": "kept_existing",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-30",
+          "label": "보훈여부",
+          "widget_kind": "radio_group",
+          "predicted_path": "person.veteran_status",
+          "decision_status": "kept_existing",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 1,
+          "form_field": "al-f0-31",
+          "label": "병역구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "person.military_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "page_index": 2,
+      "field_count": 42,
+      "submit_control_count": 6,
+      "inspect_ms": 73.9,
+      "fill_ms": null,
+      "fields": [
+        {
+          "page_index": 2,
+          "form_field": "al-f0-0",
+          "label": "학교명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-1",
+          "label": "학교소재지 서울 부산 대구 인천 광주 대전 울산 경기 강원 충북 충남 전북 전남 경북 경남 제주 세종 전남광주통합특별시 미국 일본 프랑스 호주 중국 영국 독일 캐나다 스웨덴 핀란드 이탈리아 러시아 대만 인도네시아 말레이시아 방글라데시 싱가폴 인도 필리핀 홍콩 베트남 뉴질랜드 오세아니아 중남미 아프리카 기타 아시아 기타 유럽 기타 지역",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-2",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-3",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-4",
+          "label": "학교명",
+          "widget_kind": "text",
+          "predicted_path": "education.university.school_name",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-5",
+          "label": "학교소재지 서울 부산 대구 인천 광주 대전 울산 경기 강원 충북 충남 전북 전남 경북 경남 제주 세종 전남광주통합특별시 미국 일본 프랑스 호주 중국 영국 독일 캐나다 스웨덴 핀란드 이탈리아 러시아 대만 인도네시아 말레이시아 방글라데시 싱가폴 인도 필리핀 홍콩 베트남 뉴질랜드 오세아니아 중남미 아프리카 기타 아시아 기타 유럽 기타 지역",
+          "widget_kind": "select",
+          "predicted_path": "education.university.region",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-6",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "education.university.admission_date",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-7",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "education.university.graduation_date",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-8",
+          "label": "학과계열을 선택하세요. 가정 간호 건축 공학 농림 사범 법정 사회 상경 신학 어문 예체 의학 인문 자연 부동산 축수산 보건 기타",
+          "widget_kind": "select",
+          "predicted_path": "education.university.major",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-9",
+          "label": "전공검색",
+          "widget_kind": "text",
+          "predicted_path": "education.university.major",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-10",
+          "label": "전공계열을 선택하세요. 인문계열(언어ㆍ문학) 인문계열(인문과학) 상경계열(경영·경제) 상경계열(회계·금융) 상경계열(통계) 상경계열(무역) 사회계열(법률) 사회계열(사회과학) 교육계열(교육일반) 교육계열(유아교육) 교육계열(특수교육) 교육계열(초등교육) 교육계열(중등교육) 공학계열(건축) 공학계열(토목·도시) 공학계열(교통·운송) 공학계열(기계·금속) 공학계열(전기·전자) 공학계열(정밀·에너지) 공학계열(소재·재료) 공학계열(컴퓨터·통신) 공학계열(산업) 공학계열(화공) 공학계열(환경) 공학계열(조선해양) 자연계열(농림·수산) 자연계열(생물·화학·환경) 자연계열(생활과학) 자연계열(수학·물리·천문·지리) 자연계열(교통.운송) 의약계열(의료) 의약계열(간호) 의약계열(약학) 의약계열(치료·보건) 예체능계열(디자인) 예체능계열(응용예술) 예체능계열(무용·체육) 예체능계열(미술·조형) 예체능계열(연극·영화) 예체능계열(음악) 기타",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-11",
+          "label": "평점",
+          "widget_kind": "text",
+          "predicted_path": "education.university.gpa",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-12",
+          "label": "만점기준 3.0 3.5 4.0 4.3 4.5 5.0 7.0 20 100",
+          "widget_kind": "select",
+          "predicted_path": "education.university.gpa_scale",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-13",
+          "label": "학교명",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.school_name",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-14",
+          "label": "학교소재지 서울 부산 대구 인천 광주 대전 울산 경기 강원 충북 충남 전북 전남 경북 경남 제주 세종 전남광주통합특별시 미국 일본 프랑스 호주 중국 영국 독일 캐나다 스웨덴 핀란드 이탈리아 러시아 대만 인도네시아 말레이시아 방글라데시 싱가폴 인도 필리핀 홍콩 베트남 뉴질랜드 오세아니아 중남미 아프리카 기타 아시아 기타 유럽 기타 지역",
+          "widget_kind": "select",
+          "predicted_path": "education.graduate_school.region",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-15",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.admission_date",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-16",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.graduation_date",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-17",
+          "label": "전공검색",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.major",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-18",
+          "label": "전공계열을 선택하세요. 인문계열(언어ㆍ문학) 인문계열(인문과학) 상경계열(경영·경제) 상경계열(회계·금융) 상경계열(통계) 상경계열(무역) 사회계열(법률) 사회계열(사회과학) 교육계열(교육일반) 교육계열(유아교육) 교육계열(특수교육) 교육계열(초등교육) 교육계열(중등교육) 공학계열(건축) 공학계열(토목·도시) 공학계열(교통·운송) 공학계열(기계·금속) 공학계열(전기·전자) 공학계열(정밀·에너지) 공학계열(소재·재료) 공학계열(컴퓨터·통신) 공학계열(산업) 공학계열(화공) 공학계열(환경) 공학계열(조선해양) 자연계열(농림·수산) 자연계열(생물·화학·환경) 자연계열(생활과학) 자연계열(수학·물리·천문·지리) 자연계열(교통.운송) 의약계열(의료) 의약계열(간호) 의약계열(약학) 의약계열(치료·보건) 예체능계열(디자인) 예체능계열(응용예술) 예체능계열(무용·체육) 예체능계열(미술·조형) 예체능계열(연극·영화) 예체능계열(음악) 기타",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-19",
+          "label": "평점",
+          "widget_kind": "text",
+          "predicted_path": "education.graduate_school.graduation_date",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-20",
+          "label": "만점기준 3.0 3.5 4.0 4.3 4.5 5.0 7.0 20 100",
+          "widget_kind": "select",
+          "predicted_path": "education.graduate_school.gpa_scale",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-21",
+          "label": "고용형태를 선택하세요. 정규직 계약직 병역특례 인턴 기타",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-22",
+          "label": "회사명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-23",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-24",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-25",
+          "label": "부서",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-26",
+          "label": "부서",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-27",
+          "label": "담당업무",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-28",
+          "label": "졸업구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-29",
+          "label": "학위구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.university.degree",
+          "decision_status": "missing_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-30",
+          "label": "학교소재지",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.university.campus_type",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-31",
+          "label": "입학구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.university.admission_type",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-32",
+          "label": "졸업구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.university.graduation_status",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-33",
+          "label": "주전공",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-34",
+          "label": "주간",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.university.major",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-35",
+          "label": "학위구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.graduate_school.degree",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-36",
+          "label": "학교소재지",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.graduate_school.campus_type",
+          "decision_status": "planned",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-37",
+          "label": "입학구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.graduate_school.graduation_status",
+          "decision_status": "needs_human",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-38",
+          "label": "졸업구분",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.graduate_school.graduation_status",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-39",
+          "label": "주전공",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-40",
+          "label": "주간",
+          "widget_kind": "radio_group",
+          "predicted_path": "education.graduate_school.major",
+          "decision_status": "mapping_review_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 2,
+          "form_field": "al-f0-41",
+          "label": "근무기간",
+          "widget_kind": "radio_group",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "page_index": 3,
+      "field_count": 24,
+      "submit_control_count": 6,
+      "inspect_ms": 48.4,
+      "fill_ms": null,
+      "fields": [
+        {
+          "page_index": 3,
+          "form_field": "al-f0-0",
+          "label": "시험",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-1",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-2",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-3",
+          "label": "등급선택 6급 5급 4급 3급 2급 1급",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-4",
+          "label": "자격증명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-5",
+          "label": "발급기관",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-6",
+          "label": "발급기관",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-7",
+          "label": "취득일",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-8",
+          "label": "상훈명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-9",
+          "label": "수여기관",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-10",
+          "label": "수여기관",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-11",
+          "label": "수상내역",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-12",
+          "label": "과정명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-13",
+          "label": "과정명",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-14",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-15",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-16",
+          "label": "이수기간",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-17",
+          "label": "주요내용",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_required",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-18",
+          "label": "활동구분 선택 동아리활동 연구회 팀 프로젝트 온라인 커뮤니티 재능기부 활동 기타사회활동",
+          "widget_kind": "select",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-19",
+          "label": "활동구분",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-20",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-21",
+          "label": "",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-22",
+          "label": "활동기간",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        },
+        {
+          "page_index": 3,
+          "form_field": "al-f0-23",
+          "label": "활동내역",
+          "widget_kind": "text",
+          "predicted_path": "unmapped",
+          "decision_status": "unmapped_optional",
+          "fill_status": null,
+          "attempts": 0
+        }
+      ]
+    }
+  ]
+}
