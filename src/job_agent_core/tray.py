@@ -1,6 +1,8 @@
 # 메뉴 막대(macOS) / 알림 영역(Windows) 아이콘. 지금 단계를 네잎클로버로 보여 줍니다.
-# 대기: 가끔 좌우로 흔들림 · 입력 중: 바람개비처럼 회전 · 사용자 확인 필요: 가운데 ! + 확인할 때까지 금색으로 깜빡임
-# 완료: 금색으로 몇 번 반짝인 뒤 원래 색 · 오류: 회색 클로버에 ?
+# 대기: 가끔 좌우로 흔들림 · 분석·AI 확인(진행률 모름): 바람개비처럼 회전
+# 입력 중(진행률 앎): 입력한 비율만큼 잎이 시계 방향으로 채워지고, 다음 잎이 깜빡임
+# 사용자 확인 필요: 가운데 ! + 확인할 때까지 금색으로 깜빡임
+# 완료: 넷째 잎이 채워진 뒤 금색으로 몇 번 반짝이고 원래 색 · 오류: 회색 클로버에 ?
 # 그림은 assets/clover/의 SVG(모양만, 디자인 원본: design/clover/make_icons.py)이고, 색은 여기서 칠합니다.
 # 색은 메뉴에서 「초록 / 흑백」 중에 고르며, 고른 값만 QSettings에 저장합니다.
 # 창이 숨겨졌거나 최소화돼 있을 때는 확인 필요·완료·오류를 시스템 알림으로도 알립니다(이력서 값은 넣지 않음).
@@ -33,14 +35,20 @@ def frames(state: str, style: str) -> list[tuple[str, str]]:
         return [("clover", "base")] * 20 + [(name, "base") for name in ("clover_left", "clover", "clover_right", "clover")]
     if state == "applying":
         return [(f"spin_{index}", "base") for index in range(8)]
+    if state.startswith("filling_"):  # 채운 잎 n장 + 다음 잎 깜빡임(약 1초 주기)
+        count = int(state.rsplit("_", 1)[1])
+        following = f"fill_{count + 1}" if count < 3 else "clover"
+        return [(f"fill_{count}", "base")] * 4 + [(following, "base")] * 3
     if state in {"waiting", "attention"}:  # 같은 그림: 사용자가 확인할 때까지 계속 깜빡임
         return _NOTICE_COLOR if style == "green" else _NOTICE_MONO
-    if state == "success":  # 세 번 반짝이고 기본색으로 멈춤
-        return (_FLASH_COLOR if style == "green" else _FLASH_MONO) * 3 + [("clover", "base")]
+    if state == "success":  # 넷째 잎이 채워지고 세 번 반짝인 뒤 기본색으로 멈춤
+        grow = [("fill_3", "base")] * 2 + [("clover", "base")] * 2
+        return grow + (_FLASH_COLOR if style == "green" else _FLASH_MONO) * 3 + [("clover", "base")]
     return [("error", "grey")]
 
 
-STATES = ("idle", "applying", "waiting", "attention", "success", "error")
+FILL_STATES = tuple(f"filling_{count}" for count in range(4))
+STATES = ("idle", "applying", *FILL_STATES, "waiting", "attention", "success", "error")
 # 완료만 한 번 재생하고 멈추고, 나머지 여러 장짜리는 계속 반복합니다.
 PLAY_ONCE = {"success"}
 STYLES = {"green": "초록", "mono": "흑백"}
@@ -62,6 +70,7 @@ def should_notify(state: str, window: QWidget) -> bool:
 TOOLTIPS = {
     "idle": "대기 중",
     "applying": "작업 중",
+    **{state: "자동 입력 중" for state in FILL_STATES},
     "waiting": "브라우저에서 확인해 주세요",
     "success": "완료",
     "attention": "확인이 필요한 항목이 있습니다",

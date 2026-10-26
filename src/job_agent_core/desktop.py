@@ -117,6 +117,16 @@ RESUME_SUMMARY = ("person.birth_date", "person.phone", "person.email", "person.a
 # 템플릿 이력서(앱에 함께 들어 있음). 브라우저에서 값을 고친 뒤 PDF로 저장합니다.
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "resume_template.html"
 
+# 앱 아이콘(디자인 원본: design/logo/make_app_icon.py). 작은 크기는 글자를 뺀 간단한 그림.
+APP_ICON_PATHS = (Path(__file__).parent / "assets" / "app_icon.png", Path(__file__).parent / "assets" / "app_icon_small.png")
+
+
+def app_icon() -> QIcon:
+    icon = QIcon()
+    for path in APP_ICON_PATHS:
+        icon.addFile(str(path))
+    return icon
+
 # AI 보조 기능 선택(QSettings): "on" 또는 "off". 값이 없으면 첫 실행이라 설정 화면을 먼저 보여 줍니다.
 AI_CHOICE_KEY = "ai/choice"
 
@@ -2021,10 +2031,14 @@ class ApplyLocalWindow(QWidget):
             self.tray.set_state(self.tray_state(), self.header_status.text())
         self.adjustSize()
 
-    # 메뉴 막대 아이콘 표정: 오류 > 작업 중 > 사용자 조작 대기 > 확인 필요/완료 > 대기.
+    # 메뉴 막대 아이콘 표정: 오류 > 입력 진행률/작업 중 > 사용자 조작 대기 > 확인 필요/완료 > 대기.
     def tray_state(self) -> str:
         if self.failed_last:
             return "error"
+        # 입력 단계에서 진행률을 알면 채운 잎 수(0~3)로, 모르면(분석·AI 확인·설치) 회전으로 보여 줍니다.
+        progress = self.fill_progress or {}
+        if self.stage == "filling" and progress.get("total"):
+            return f"filling_{min(3, 4 * progress.get('done', 0) // progress['total'])}"
         if self.busy or self.stage in {"parsing", "filling", "checking"} or (self.stage == "ai" and self.setup_operation):
             return "applying"
         if self.pending_domain or (self.stage == "url" and self.browser is not None):
@@ -2049,6 +2063,7 @@ class ApplyLocalWindow(QWidget):
 def run_desktop(base_url: str, token: str) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("Apply Local")
+    app.setWindowIcon(app_icon())
     window = ApplyLocalWindow(DesktopApiClient(base_url, token))
     if MenuBarIcon.available():
 

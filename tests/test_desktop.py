@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from job_agent_core.desktop import ApplyLocalWindow, DesktopApiClient
+from job_agent_core.desktop import APP_ICON_PATHS, ApplyLocalWindow, DesktopApiClient, app_icon
 
 
 PREVIEW = {
@@ -40,6 +40,10 @@ class DesktopWindowTests(unittest.TestCase):
 
     def visible_page(self):
         return next(name for name, page in self.window.pages.items() if not page.isHidden())
+
+    def test_app_icon_has_large_and_small_pictures(self):
+        self.assertTrue(all(path.is_file() for path in APP_ICON_PATHS))
+        self.assertGreaterEqual(len(app_icon().availableSizes()), 2)
 
     def test_starts_on_resume_upload_with_remember_on(self):
         self.assertEqual(self.visible_page(), "upload")
@@ -165,7 +169,12 @@ class DesktopWindowTests(unittest.TestCase):
         self.window._browser_updated({"state": "open"})
         self.assertEqual(self.window.tray_state(), "waiting")
         self.window.stage = "filling"
-        self.assertEqual(self.window.tray_state(), "applying")
+        self.assertEqual(self.window.tray_state(), "applying")  # 진행률을 아직 모름(페이지 분석 중)
+        # 입력 진행률만큼 잎이 채워짐: 0~24% → 0장, 50% → 2장, 끝나기 직전에도 3장(넷째 잎은 완료 때).
+        for done, leaves in ((0, 0), (5, 1), (10, 2), (19, 3), (20, 3)):
+            self.window.fill_progress = {"total": 20, "done": done}
+            self.assertEqual(self.window.tray_state(), f"filling_{leaves}", done)
+        self.window.fill_progress = None
         self.window.fill_report = {"results": [{"form_field": "a", "status": "needs_human"}], "safe_next_available": False}
         self.window.stage = "done"
         self.assertEqual(self.window.tray_state(), "attention")
@@ -204,6 +213,10 @@ class DesktopWindowTests(unittest.TestCase):
         self.assertEqual({color for color, _ in mono.values()}, {"#ffffff"})
         self.assertLess(mono["dim"][1], 1)
         self.assertEqual(frames("error", "green"), [("error", "grey")])
+        # 입력 중: 채운 잎은 그대로, 다음 잎이 깜빡임. 완료는 넷째 잎이 채워진 뒤 금색으로 반짝임.
+        self.assertEqual(set(frames("filling_1", "green")), {("fill_1", "base"), ("fill_2", "base")})
+        self.assertEqual(set(frames("filling_3", "green")), {("fill_3", "base"), ("clover", "base")})
+        self.assertEqual(frames("success", "green")[0], ("fill_3", "base"))
 
     def test_header_has_native_style_close_and_minimize_buttons(self):
         from job_agent_core.desktop import WindowButton
